@@ -3,6 +3,12 @@
 # handling are exercised against a simulated BME280, no hardware needed.
 set -euo pipefail
 
+# macOS: Xcode のライセンス未同意だとシステムツール (git/cmake/c++) が動かない
+if [ -d /Library/Developer/CommandLineTools ] && [ -z "${DEVELOPER_DIR:-}" ]; then
+    export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+fi
+
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIRMWARE="$ROOT/firmware"
 

@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host-tests:
+    name: Host unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run firmware host tests
+        run: ./scripts/test.sh
+
+  firmware:
+    name: Firmware build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build git python3
+      - name: Install Arm GNU Toolchain + pico-sdk
+        run: ./scripts/setup-toolchain.sh
+      - name: Build
+        run: ./scripts/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bme280_monitor
+          path: |
+            firmware/build/bme280_monitor.uf2
+            firmware/build/bme280_monitor.elf
+          if-no-files-found: error

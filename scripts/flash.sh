@@ -9,6 +9,12 @@
 # script always goes through picotool over USB.
 set -euo pipefail
 
+# macOS: Xcode のライセンス未同意だとシステムツール (git/cmake/c++) が動かない
+if [ -d /Library/Developer/CommandLineTools ] && [ -z "${DEVELOPER_DIR:-}" ]; then
+    export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+fi
+
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UF2="${UF2:-$ROOT/firmware/build/bme280_monitor.uf2}"
 PICOTOOL="${PICOTOOL:-$HOME/toolchain/picotool-build/picotool}"

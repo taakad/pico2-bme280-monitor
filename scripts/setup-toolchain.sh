@@ -6,6 +6,12 @@
 # Usage: scripts/setup-toolchain.sh [--dir DIR]
 set -euo pipefail
 
+# macOS: Xcode のライセンス未同意だとシステムツール (git/cmake/c++) が動かない
+if [ -d /Library/Developer/CommandLineTools ] && [ -z "${DEVELOPER_DIR:-}" ]; then
+    export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+fi
+
+
 TOOLCHAIN_DIR="${TOOLCHAIN_DIR:-$HOME/toolchain}"
 ARM_RELEASE="13.2.Rel1"
 SDK_TAG="2.1.1"
@@ -70,10 +76,16 @@ if [ ! -x "$PICO_TOOL" ]; then
     else
         PICOTOOL_SRC="$SDK_DIR/tools/picotool"
     fi
+    case "$OS" in
+        darwin) LIBUSB_INC="${LIBUSB_INCLUDE_DIR:-/opt/homebrew/include/libusb-1.0}"
+                LIBUSB_LIB="${LIBUSB_LIBRARIES:-/opt/homebrew/lib/libusb-1.0.dylib}" ;;
+        linux)  LIBUSB_INC="${LIBUSB_INCLUDE_DIR:-/usr/include/libusb-1.0}"
+                LIBUSB_LIB="${LIBUSB_LIBRARIES:-/usr/lib/$(uname -m)-linux-gnu/libusb-1.0.so}" ;;
+    esac
     cmake -B "$TOOLCHAIN_DIR/picotool-build" "$PICOTOOL_SRC" \
         -DPICO_SDK_PATH="$SDK_DIR" \
-        -DLIBUSB_INCLUDE_DIR="${LIBUSB_INCLUDE_DIR:-/opt/homebrew/include/libusb-1.0}" \
-        -DLIBUSB_LIBRARIES="${LIBUSB_LIBRARIES:-/opt/homebrew/lib/libusb-1.0.dylib}"
+        -DLIBUSB_INCLUDE_DIR="$LIBUSB_INC" \
+        -DLIBUSB_LIBRARIES="$LIBUSB_LIB"
     cmake --build "$TOOLCHAIN_DIR/picotool-build" -j
 fi
 echo "picotool: $("$PICO_TOOL" version 2>/dev/null | head -1)"

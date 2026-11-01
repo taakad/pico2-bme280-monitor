@@ -3,13 +3,25 @@
 # scripts/setup-toolchain.sh.
 set -euo pipefail
 
+# macOS: Xcode のライセンス未同意だとシステムツール (git/cmake/c++) が動かない
+if [ -d /Library/Developer/CommandLineTools ] && [ -z "${DEVELOPER_DIR:-}" ]; then
+    export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+fi
+
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIRMWARE="$ROOT/firmware"
 BUILD="$FIRMWARE/build"
 BOARD="${PICO_BOARD:-pico2}"
 
-: "${PICO_SDK_PATH:=$HOME/toolchain/pico-sdk}"
-: "${PICO_TOOLCHAIN_PATH:=$HOME/toolchain/arm-gnu-toolchain-13.2.Rel1-darwin-arm64-arm-none-eabi}"
+TOOLCHAIN_DIR="${TOOLCHAIN_DIR:-$HOME/toolchain}"
+: "${PICO_SDK_PATH:=$TOOLCHAIN_DIR/pico-sdk}"
+if [ -z "${PICO_TOOLCHAIN_PATH:-}" ]; then
+    # setup-toolchain.sh の出力名は OS/arch 依存なので、インストール済みディレクトリを探す
+    PICO_TOOLCHAIN_PATH="$(find "$TOOLCHAIN_DIR" -maxdepth 1 -type d \
+        -name 'arm-gnu-toolchain-*-arm-none-eabi' 2>/dev/null | sort | tail -1)"
+    PICO_TOOLCHAIN_PATH="${PICO_TOOLCHAIN_PATH:-$TOOLCHAIN_DIR/arm-gnu-toolchain-13.2.Rel1-darwin-arm64-arm-none-eabi}"
+fi
 export PICO_SDK_PATH PICO_TOOLCHAIN_PATH
 
 if [ ! -f "$PICO_SDK_PATH/pico_sdk_init.cmake" ]; then
@@ -21,7 +33,8 @@ if [ ! -x "$PICO_TOOLCHAIN_PATH/bin/arm-none-eabi-gcc" ]; then
     exit 1
 fi
 
-CMAKE="$(command -v cmake || command -v /opt/homebrew/bin/cmake)"
+CMAKE="$(command -v cmake || command -v /opt/homebrew/bin/cmake || true)"
+[ -n "$CMAKE" ] || { echo "cmake not found - install it (brew install cmake / apt install cmake)" >&2; exit 1; }
 
 # A cache left over from a moved or renamed checkout cannot be reused.
 if [ -f "$BUILD/CMakeCache.txt" ] &&
