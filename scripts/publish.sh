@@ -81,6 +81,11 @@ git remote add origin "https://github.com/$ACCOUNT/$REPO_NAME.git" 2>/dev/null |
     git remote set-url origin "https://github.com/$ACCOUNT/$REPO_NAME.git"
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$USE_TOKEN" != 1 ]; then
+    # git に gh のトークンを credential helper として認識させる
+    # （osxkeychain しか設定していない環境だと push が認証に失敗する）
+    "$GH" auth setup-git
+fi
 if [ "$USE_TOKEN" = 1 ]; then
     # トークンは .git/config に残さないよう、push 時にだけ credential helper として渡す
     git -c "credential.helper=" -c "credential.helper=!f() { echo password=$TOKEN; }; f" \
