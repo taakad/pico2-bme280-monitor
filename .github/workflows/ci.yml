@@ -21,9 +21,9 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build git python3 libusb-1.0-0-dev
+          sudo apt-get install -y cmake ninja-build git python3
       - name: Install Arm GNU Toolchain + pico-sdk
-        run: ./scripts/setup-toolchain.sh
+        run: ./scripts/setup-toolchain.sh --skip-picotool
       - name: Build
         run: ./scripts/build.sh
       - uses: actions/upload-artifact@v4
