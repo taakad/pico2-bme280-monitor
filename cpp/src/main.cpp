@@ -5,6 +5,7 @@
 #include "pico/stdlib.h"
 
 #include "bme280.hpp"
+#include "i2c_scan.hpp"
 
 // Raspberry Pi Pico 2 (RP2350) + BME280 on I2C0.
 //
@@ -45,29 +46,17 @@ void ledPattern(uint32_t halfPeriodMs, uint32_t cycles) {
     }
 }
 
-// One printf per probe result: nothing accumulates into a fixed buffer, so the
-// scan cannot overrun and fault the core.
+// Prints one probe result at a time: nothing accumulates into a fixed buffer,
+// so the scan cannot overrun and fault the core.
 void reportScan(i2c_inst_t *i2c) {
+    uint8_t found[i2cscan::kProbedAddressCount];
+    const size_t count = i2cscan::scan(i2c, found, i2cscan::kProbedAddressCount, watchdog_update);
+
     std::printf("I2C scan:");
-    std::fflush(stdout);
-    int found = 0;
-    for (uint8_t addr = 0x08; addr <= 0x77; ++addr) {
-        watchdog_update();
-        // Bounded probe: an unpowered or miswired sensor can hold the bus low,
-        // and an untimed probe would then hang the scan forever.
-        //
-        // A zero-length write cannot be used as a probe: pico-sdk's write loop
-        // never runs for len == 0, so it transmits nothing and reports success
-        // for every address. Probing with a one-byte read is safe (it leaves
-        // device registers untouched) and does exercise the address phase.
-        uint8_t dummy = 0;
-        if (i2c_read_timeout_us(i2c, addr, &dummy, 1, false, 20000) >= 0) {
-            std::printf(" %02X", addr);
-            std::fflush(stdout);
-            ++found;
-        }
+    for (size_t i = 0; i < count; ++i) {
+        std::printf(" %02X", found[i]);
     }
-    if (found == 0) {
+    if (count == 0) {
         std::printf(" (none)");
     }
     std::printf("\r\n");

@@ -11,6 +11,7 @@
 #include "bme280.hpp"
 #include "bme280_math.hpp"
 #include "hardware/i2c.h"
+#include "i2c_scan.hpp"
 
 namespace {
 
@@ -232,6 +233,33 @@ void testStuckBusFailsFast() {
     check(sensor.begin(), "begin() recovers once the bus is free");
 }
 
+// pico-sdk's i2c_write_blocking() transmits nothing when len == 0 and reports
+// success, so probing with a zero-length write makes every address look
+// present. The scan must use a transfer that really exercises the address
+// phase, and must not report addresses that never acknowledged.
+void testScanOnlyReportsAcknowledgingAddresses() {
+    std::printf("testScanOnlyReportsAcknowledgingAddresses\n");
+    simReset();
+
+    uint8_t found[i2cscan::kProbedAddressCount] = {};
+    const size_t count = i2cscan::scan(i2c0, found, i2cscan::kProbedAddressCount, nullptr);
+    check(count == 1, "scan finds exactly the simulated device");
+    check(count == 1 && found[0] == 0x76, "scan reports address 0x76");
+
+    // A scan into a smaller buffer must stay in bounds and still count all hits.
+    uint8_t small[1] = {};
+    const size_t total = i2cscan::scan(i2c0, small, 1, nullptr);
+    check(total == 1, "scan counts hits even when the buffer is full");
+    check(small[0] == 0x76, "scan fills the buffer before stopping storing");
+
+    // With nothing on the bus the scan must report an empty result rather than
+    // the 112 addresses a zero-length-write probe would have claimed.
+    simSetBusStuck(true);
+    const size_t none = i2cscan::scan(i2c0, found, i2cscan::kProbedAddressCount, nullptr);
+    check(none == 0, "scan reports no addresses on a stuck bus");
+    simSetBusStuck(false);
+}
+
 }  // namespace
 
 int main() {
@@ -245,6 +273,7 @@ int main() {
     testChipIdRejected();
     testMissingSensorRejected();
     testStuckBusFailsFast();
+    testScanOnlyReportsAcknowledgingAddresses();
 
     std::printf("\n%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
