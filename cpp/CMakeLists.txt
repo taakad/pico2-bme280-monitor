@@ -31,6 +31,12 @@ target_link_libraries(bme280_monitor
 # explicitly; without this every %f field prints as empty.
 target_link_options(bme280_monitor PRIVATE -u_printf_float)
 
+# By default stdio_usb drops output produced before the host opens the CDC port,
+# which hides the boot banner. Wait up to 3 s for the host to attach.
+target_compile_definitions(bme280_monitor PRIVATE
+    PICO_STDIO_USB_CONNECT_WAIT_TIMEOUT_MS=3000
+)
+
 # printf over USB CDC; no UART wiring is required on the Pico 2.
 pico_enable_stdio_usb(bme280_monitor 1)
 pico_enable_stdio_uart(bme280_monitor 0)

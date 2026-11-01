@@ -55,7 +55,13 @@ void reportScan(i2c_inst_t *i2c) {
         watchdog_update();
         // Bounded probe: an unpowered or miswired sensor can hold the bus low,
         // and an untimed probe would then hang the scan forever.
-        if (i2c_write_timeout_us(i2c, addr, nullptr, 0, false, 20000) >= 0) {
+        //
+        // A zero-length write cannot be used as a probe: pico-sdk's write loop
+        // never runs for len == 0, so it transmits nothing and reports success
+        // for every address. Probing with a one-byte read is safe (it leaves
+        // device registers untouched) and does exercise the address phase.
+        uint8_t dummy = 0;
+        if (i2c_read_timeout_us(i2c, addr, &dummy, 1, false, 20000) >= 0) {
             std::printf(" %02X", addr);
             std::fflush(stdout);
             ++found;
