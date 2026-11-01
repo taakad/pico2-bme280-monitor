@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+build/
+*.uf2
+*.elf
+*.bin
+*.hex
+.map
