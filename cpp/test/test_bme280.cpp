@@ -218,6 +218,20 @@ void testMissingSensorRejected() {
     check(!sensor.read(&raw), "read() fails when device NACKs");
 }
 
+// A stuck bus (unpowered sensor holding SDA/SCL low) must fail every transfer
+// instead of blocking forever, so main() can keep its watchdog fed and retry.
+void testStuckBusFailsFast() {
+    std::printf("testStuckBusFailsFast\n");
+    simReset();
+    simSetBusStuck(true);
+    bme280::Sensor sensor(i2c0, 0x76);
+    check(!sensor.begin(), "begin() fails on a stuck bus");
+    bme280::RawData raw{};
+    check(!sensor.read(&raw), "read() fails on a stuck bus");
+    simSetBusStuck(false);
+    check(sensor.begin(), "begin() recovers once the bus is free");
+}
+
 }  // namespace
 
 int main() {
@@ -230,6 +244,7 @@ int main() {
     testConfigurationWrites();
     testChipIdRejected();
     testMissingSensorRejected();
+    testStuckBusFailsFast();
 
     std::printf("\n%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
