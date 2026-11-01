@@ -3,6 +3,9 @@
 pico-sdk C++ replacement for the MicroPython BME280 scripts. Compensation math
 follows the Bosch `BME280_driver` reference implementation.
 
+The repository root has the user-facing guide (setup, flashing, monitoring,
+roadmap). This file documents the firmware itself. See [../README.md](../README.md).
+
 ## Wiring
 
 | BME280 | Pico 2 |
@@ -19,6 +22,16 @@ scripts used `scl=Pin(4), sda=Pin(5)`, which MicroPython rejects on Pico 2 with
 
 ## Build
 
+From the repository root, prefer the wrapper scripts:
+
+```sh
+scripts/setup-toolchain.sh   # one-off: Arm toolchain + pico-sdk + picotool
+scripts/build.sh             # -> firmware/build/bme280_monitor.uf2
+scripts/flash.sh             # flash + verify + reboot an attached board
+```
+
+Or drive cmake directly:
+
 ```sh
 export PICO_SDK_PATH=$HOME/toolchain/pico-sdk
 export PICO_TOOLCHAIN_PATH=$HOME/toolchain/arm-gnu-toolchain-13.2.Rel1-darwin-arm64-arm-none-eabi
@@ -31,7 +44,7 @@ Produces `build/bme280_monitor.uf2`.
 ### Flashing
 
 Hold BOOTSEL while plugging in USB, then copy the UF2 to the `RPI-RP2` volume.
-On macOS that copy can hang; `picotool` over USB is more reliable:
+On macOS that copy can hang; `scripts/flash.sh` (picotool over USB) is reliable:
 
 ```sh
 picotool reboot -f -u          # running firmware -> BOOTSEL
@@ -40,10 +53,12 @@ picotool verify build/bme280_monitor.uf2
 picotool reboot
 ```
 
-Build picotool with libusb support if `picotool list` reports no devices:
+picotool needs libusb support to see devices; `scripts/setup-toolchain.sh` builds
+it with the right flags. Manually:
 
 ```sh
-cmake -B picotool-build _deps/picotool-src \
+cmake -B picotool-build <pico-sdk>/tools/picotool \
+    -DPICO_SDK_PATH=$HOME/toolchain/pico-sdk \
     -DLIBUSB_INCLUDE_DIR=/opt/homebrew/include/libusb-1.0 \
     -DLIBUSB_LIBRARIES=/opt/homebrew/lib/libusb-1.0.dylib
 ```
@@ -55,9 +70,15 @@ with a simulated BME280 register file seeded from calibration data captured off
 the real module:
 
 ```sh
+scripts/test.sh
+```
+
+Equivalent manual command:
+
+```sh
 c++ -std=c++17 -Wall -Wextra -Isrc -Itest/host_stubs \
     test/test_bme280.cpp test/host_stubs/i2c_stub.cpp \
-    src/bme280.cpp src/bme280_math.cpp -o /tmp/bme280_test
+    src/bme280.cpp src/bme280_math.cpp src/i2c_scan.cpp -o /tmp/bme280_test
 /tmp/bme280_test
 ```
 

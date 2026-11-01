@@ -1,8 +1,25 @@
+# Python
 __pycache__/
 *.pyc
+
+# Firmware build artefacts
 build/
 *.uf2
 *.elf
 *.bin
 *.hex
-.map
+*.map
+*.dis
+*.o
+*.a
+
+# Node / Angular (planned UI)
+node_modules/
+dist/
+.angular/
+
+# Editor / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
