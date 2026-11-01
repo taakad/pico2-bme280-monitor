@@ -38,12 +38,19 @@ mkdir -p "$TOOLCHAIN_DIR"
 cd "$TOOLCHAIN_DIR"
 
 # --- Arm GNU Toolchain -------------------------------------------------------
-ARM_DIR="$TOOLCHAIN_DIR/arm-gnu-toolchain-${ARM_RELEASE}-${OS}-${ARCH}-arm-none-eabi"
+# 展開後のディレクトリ名は配布ファイル名と同じ (macOS: darwin-arm64 / Linux: x86_64 など)
+case "$OS" in
+    darwin) ARM_NAME="arm-gnu-toolchain-${ARM_RELEASE}-darwin-arm64-arm-none-eabi" ;;
+    linux)  ARM_NAME="arm-gnu-toolchain-${ARM_RELEASE}-${ARCH}-arm-none-eabi" ;;
+esac
+ARM_DIR="$TOOLCHAIN_DIR/$ARM_NAME"
 if [ ! -x "$ARM_DIR/bin/arm-none-eabi-gcc" ]; then
     echo "downloading Arm GNU Toolchain ${ARM_RELEASE} (${OS}-${ARCH})"
     case "$OS" in
-        darwin) URL="https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_RELEASE}/binrel/arm-gnu-toolchain-${ARM_RELEASE}-${OS}-arm64-arm-none-eabi.tar.xz" ;;
-        linux)  URL="https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_RELEASE}/binrel/arm-gnu-toolchain-${ARM_RELEASE}-${OS}-aarch64-arm-none-eabi.tar.xz" ;;
+        # Arm の配布ファイル名は OS 表記が異なる: macOS は "darwin-arm64"、
+        # Linux はアーキテクチャのみ ("x86_64" / "aarch64")。
+        darwin) URL="https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_RELEASE}/binrel/arm-gnu-toolchain-${ARM_RELEASE}-darwin-arm64-arm-none-eabi.tar.xz" ;;
+        linux)  URL="https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_RELEASE}/binrel/arm-gnu-toolchain-${ARM_RELEASE}-${ARCH}-arm-none-eabi.tar.xz" ;;
     esac
     curl -fL --retry 3 -o arm-gnu.tar.xz "$URL"
     tar xf arm-gnu.tar.xz
@@ -97,7 +104,9 @@ if ! command -v gh >/dev/null 2>&1 && [ ! -x "$GH_BIN" ]; then
     GH_VER="2.103.3"
     case "$OS" in
         darwin) GH_URL="https://github.com/cli/cli/releases/download/v${GH_VER}/gh_${GH_VER}_macOS_${ARCH}.zip" ;;
-        linux)  GH_URL="https://github.com/cli/cli/releases/download/v${GH_VER}/gh_${GH_VER}_linux_${ARCH}.tar.gz" ;;
+        # gh の配布はアーキテクチャ表記が Arm と違う (amd64 / arm64)
+        linux)  case "$ARCH" in x86_64|x64) GH_ARCH=amd64 ;; *) GH_ARCH="$ARCH" ;; esac
+                GH_URL="https://github.com/cli/cli/releases/download/v${GH_VER}/gh_${GH_VER}_linux_${GH_ARCH}.tar.gz" ;;
     esac
     if curl -fL --retry 3 -o "$TOOLCHAIN_DIR/gh-download" "$GH_URL"; then
         mkdir -p "$GH_BIN"

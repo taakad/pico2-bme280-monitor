@@ -10,7 +10,7 @@ constexpr uint8_t kStatusMeasuringMask = 0x03;
 // pico-sdk's plain blocking calls wait forever if the bus is stuck (missing
 // pull-ups, wrong pins, unpowered sensor), which wedges the whole program.
 // Every transfer is bounded instead.
-constexpr uint kBusTimeoutUs = 50000;
+constexpr unsigned int kBusTimeoutUs = 50000;
 
 }  // namespace
 
