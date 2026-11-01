@@ -120,6 +120,8 @@ firmware/            pico-sdk C++ ファームウェア（本体）
 scripts/             セットアップ / ビルド / テスト / 書き込み / 監視
 legacy/              元の MicroPython スクリプト（参考保存、動作しません）
 docs/                追加ドキュメント
+  review-findings.md   元の Python 実装で確認した問題と証拠
+  roadmap.md           測定条件の設定化・Angular UI・サービス化の実装方針
 ```
 
 ---
