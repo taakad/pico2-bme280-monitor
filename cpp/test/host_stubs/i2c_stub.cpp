@@ -17,6 +17,7 @@ struct Sim {
     std::map<uint8_t, uint8_t> regs;
     uint8_t pointer = 0;
     int measuring_cycles = 0;
+    bool bus_stuck = false;
     std::vector<uint8_t> written;
 };
 
@@ -69,6 +70,8 @@ void simSetAdc(uint32_t adc_t, uint32_t adc_p, uint32_t adc_h) {
 
 void simSetMeasuringCycles(int cycles) { g_sim.measuring_cycles = cycles; }
 
+void simSetBusStuck(bool stuck) { g_sim.bus_stuck = stuck; }
+
 uint8_t simReg(uint8_t addr) {
     auto it = g_sim.regs.find(addr);
     return it == g_sim.regs.end() ? 0 : it->second;
@@ -79,6 +82,9 @@ std::vector<uint8_t> simWrittenRegisters() { return g_sim.written; }
 int i2c_write_blocking(i2c_inst_t *i2c, uint8_t addr, const uint8_t *data,
                        size_t len, bool nostop) {
     (void)nostop;
+    if (g_sim.bus_stuck) {
+        return PICO_ERROR_TIMEOUT;
+    }
     if (i2c != i2c0) {
         return PICO_ERROR_GENERIC;
     }
@@ -100,6 +106,9 @@ int i2c_write_blocking(i2c_inst_t *i2c, uint8_t addr, const uint8_t *data,
 int i2c_read_blocking(i2c_inst_t *i2c, uint8_t addr, uint8_t *data,
                       size_t len, bool nostop) {
     (void)nostop;
+    if (g_sim.bus_stuck) {
+        return PICO_ERROR_TIMEOUT;
+    }
     if (i2c != i2c0 || addr != kSimAddress) {
         return PICO_ERROR_GENERIC;
     }
@@ -120,4 +129,18 @@ int i2c_read_blocking(i2c_inst_t *i2c, uint8_t addr, uint8_t *data,
     }
     g_sim.pointer = static_cast<uint8_t>(g_sim.pointer + static_cast<int>(len));
     return static_cast<int>(len);
+}
+
+// Bounded variants used by the driver. The simulation never actually blocks, so
+// a "timeout" is modelled by the stuck-bus flag.
+int i2c_write_timeout_us(i2c_inst_t *i2c, uint8_t addr, const uint8_t *data,
+                         size_t len, bool nostop, uint32_t timeout_us) {
+    (void)timeout_us;
+    return i2c_write_blocking(i2c, addr, data, len, nostop);
+}
+
+int i2c_read_timeout_us(i2c_inst_t *i2c, uint8_t addr, uint8_t *data,
+                        size_t len, bool nostop, uint32_t timeout_us) {
+    (void)timeout_us;
+    return i2c_read_blocking(i2c, addr, data, len, nostop);
 }

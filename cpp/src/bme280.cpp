@@ -7,35 +7,44 @@ namespace bme280 {
 namespace {
 
 constexpr uint8_t kStatusMeasuringMask = 0x03;
+// pico-sdk's plain blocking calls wait forever if the bus is stuck (missing
+// pull-ups, wrong pins, unpowered sensor), which wedges the whole program.
+// Every transfer is bounded instead.
+constexpr uint kBusTimeoutUs = 50000;
 
 }  // namespace
 
 uint8_t Sensor::readRegister(uint8_t reg) {
     uint8_t value = 0;
-    i2c_write_blocking(i2c_, address_, &reg, 1, true);
-    i2c_read_blocking(i2c_, address_, &value, 1, false);
+    if (i2c_write_timeout_us(i2c_, address_, &reg, 1, true, kBusTimeoutUs) < 0) {
+        return 0;
+    }
+    if (i2c_read_timeout_us(i2c_, address_, &value, 1, false, kBusTimeoutUs) < 0) {
+        return 0;
+    }
     return value;
 }
 
 void Sensor::writeRegister(uint8_t reg, uint8_t value) {
     const uint8_t payload[2] = {reg, value};
-    i2c_write_blocking(i2c_, address_, payload, sizeof(payload), false);
+    i2c_write_timeout_us(i2c_, address_, payload, sizeof(payload), false, kBusTimeoutUs);
 }
 
 bool Sensor::readRegisters(uint8_t reg, uint8_t *out, size_t len) {
-    if (i2c_write_blocking(i2c_, address_, &reg, 1, true) < 0) {
+    if (i2c_write_timeout_us(i2c_, address_, &reg, 1, true, kBusTimeoutUs) < 0) {
         return false;
     }
-    return i2c_read_blocking(i2c_, address_, out, static_cast<int>(len), false) >= 0;
+    return i2c_read_timeout_us(i2c_, address_, out, static_cast<int>(len), false,
+                               kBusTimeoutUs) >= 0;
 }
 
 bool Sensor::probe() const {
     uint8_t reg = REG_CHIP_ID;
     uint8_t id = 0;
-    if (i2c_write_blocking(i2c_, address_, &reg, 1, true) < 0) {
+    if (i2c_write_timeout_us(i2c_, address_, &reg, 1, true, kBusTimeoutUs) < 0) {
         return false;
     }
-    if (i2c_read_blocking(i2c_, address_, &id, 1, false) < 0) {
+    if (i2c_read_timeout_us(i2c_, address_, &id, 1, false, kBusTimeoutUs) < 0) {
         return false;
     }
     return id == CHIP_ID_BME280;

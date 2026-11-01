@@ -24,7 +24,12 @@ target_include_directories(bme280_monitor PRIVATE src)
 target_link_libraries(bme280_monitor
     pico_stdlib
     hardware_i2c
+    hardware_watchdog
 )
+
+# newlib-nano omits the float conversion code from printf unless it is pulled in
+# explicitly; without this every %f field prints as empty.
+target_link_options(bme280_monitor PRIVATE -u_printf_float)
 
 # printf over USB CDC; no UART wiring is required on the Pico 2.
 pico_enable_stdio_usb(bme280_monitor 1)
