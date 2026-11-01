@@ -78,6 +78,29 @@ if [ ! -x "$PICO_TOOL" ]; then
 fi
 echo "picotool: $("$PICO_TOOL" version 2>/dev/null | head -1)"
 
+# --- gh CLI (optional, used by scripts/publish.sh) ---------------------------
+GH_BIN="$TOOLCHAIN_DIR/gh"
+if ! command -v gh >/dev/null 2>&1 && [ ! -x "$GH_BIN" ]; then
+    echo "installing gh CLI (needed only for scripts/publish.sh)"
+    GH_VER="2.103.3"
+    case "$OS" in
+        darwin) GH_URL="https://github.com/cli/cli/releases/download/v${GH_VER}/gh_${GH_VER}_macOS_${ARCH}.zip" ;;
+        linux)  GH_URL="https://github.com/cli/cli/releases/download/v${GH_VER}/gh_${GH_VER}_linux_${ARCH}.tar.gz" ;;
+    esac
+    if curl -fL --retry 3 -o "$TOOLCHAIN_DIR/gh-download" "$GH_URL"; then
+        mkdir -p "$GH_BIN"
+        case "$OS" in
+            darwin) unzip -q -o "$TOOLCHAIN_DIR/gh-download" -d "$GH_BIN" ;;
+            linux)  tar xzf "$TOOLCHAIN_DIR/gh-download" -C "$GH_BIN" --strip-components=1 ;;
+        esac
+        rm -f "$TOOLCHAIN_DIR/gh-download"
+    else
+        echo "gh download failed - install it yourself (brew install gh) if you need publish.sh" >&2
+    fi
+fi
+GH_EXE="$(find "$GH_BIN" -type f -name gh 2>/dev/null | head -1 || true)"
+[ -n "$GH_EXE" ] && echo "gh: $("$GH_EXE" --version 2>/dev/null | head -1)"
+
 cat <<EOF
 
 Done. Export these before building:

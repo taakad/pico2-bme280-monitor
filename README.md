@@ -357,6 +357,28 @@ scripts/test.sh
 
 ---
 
+## GitHub への公開
+
+このリポジトリは非公開リポジトリとして配布することを想定しています。
+
+```sh
+scripts/login.sh          # GitHub 認証（ブラウザで認可するデバイスコード方式）
+scripts/login.sh --token  # Personal Access Token を貼り付ける方式
+scripts/publish.sh        # リポジトリ作成 + push
+```
+
+`publish.sh` は認証済みのアカウントに対して `pico2-bme280-monitor` という名前の
+**非公開**リポジトリを作成し（既存なら再利用）、`origin` を設定して push します。
+リポジトリ名や公開設定は環境変数で変えられます。
+
+```sh
+REPO_NAME=my-new-name VISIBILITY=public scripts/publish.sh
+```
+
+`gh` CLI が入っていない場合は `scripts/setup-toolchain.sh` が併せてインストールします。
+
+---
+
 ## ライセンス
 
 [MIT](LICENSE)
