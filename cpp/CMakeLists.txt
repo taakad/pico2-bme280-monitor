@@ -27,10 +27,6 @@ target_link_libraries(bme280_monitor
     hardware_watchdog
 )
 
-# newlib-nano omits the float conversion code from printf unless it is pulled in
-# explicitly; without this every %f field prints as empty.
-target_link_options(bme280_monitor PRIVATE -u_printf_float)
-
 # By default stdio_usb drops output produced before the host opens the CDC port,
 # which hides the boot banner. Wait up to 3 s for the host to attach.
 target_compile_definitions(bme280_monitor PRIVATE
