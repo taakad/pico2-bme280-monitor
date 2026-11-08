@@ -43,8 +43,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" \
-            firmware/build/bme280_monitor.uf2 \
-            firmware/build/SHA256SUMS \
-            --title "$TAG" \
-            --generate-notes
+          # Idempotent: if the release already exists (e.g. created by hand
+          # before the tag's workflow ran), upload the assets to it instead
+          # of failing on a duplicate tag.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              firmware/build/bme280_monitor.uf2 \
+              firmware/build/SHA256SUMS \
+              --clobber
+          else
+            gh release create "$TAG" \
+              firmware/build/bme280_monitor.uf2 \
+              firmware/build/SHA256SUMS \
+              --title "$TAG" \
+              --generate-notes
+          fi
