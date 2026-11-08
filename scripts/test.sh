@@ -28,6 +28,9 @@ $CXX -std=c++17 -Wall -Wextra -Werror \
     "$FIRMWARE/src/bme280.cpp" \
     "$FIRMWARE/src/bme280_math.cpp" \
     "$FIRMWARE/src/i2c_scan.cpp" \
+    "$FIRMWARE/src/config.cpp" \
+    "$FIRMWARE/src/command.cpp" \
+    "$FIRMWARE/src/sampler.cpp" \
     -o /tmp/bme280_test
 
 /tmp/bme280_test

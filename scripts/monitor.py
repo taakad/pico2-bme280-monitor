@@ -26,7 +26,7 @@ SAMPLE_RE = re.compile(
     r"T=\s*(?P<temperature_c>-?\d+\.\d+) C\s+P=\s*(?P<pressure_hpa>-?\d+\.\d+) hPa\s+"
     r"RH=\s*(?P<humidity_rh>-?\d+\.\d+) %\s+\|\s+dew=\s*(?P<dew_point_c>-?\d+\.\d+) C\s+"
     r"AH=\s*(?P<absolute_humidity_gm3>-?\d+\.\d+) g/m3\s+"
-    r"\(adc T=(?P<adc_t>\d+) P=(?P<adc_p>\d+) H=(?P<adc_h>\d+)\)"
+    r"\(adc T=(?P<adc_t>\d+) P=(?P<adc_p>\d+) H=(?P<adc_h>\d+)(?: n=(?P<samples>\d+))?\)"
 )
 
 
@@ -69,10 +69,28 @@ def main():
         text = line.decode(errors="replace").rstrip()
         if not text:
             continue
+        # The firmware's json=true mode already emits exactly the record shape
+        # the collector wants; stamp it with the host clock and pass it through.
+        if text.startswith("{") and text.endswith("}"):
+            if args.json:
+                try:
+                    record = json.loads(text)
+                except ValueError:
+                    print(text, flush=True)
+                    continue
+                record["port"] = port
+                record["ts"] = time.time()
+                print(json.dumps(record, ensure_ascii=False), flush=True)
+            else:
+                print(text, flush=True)
+            if stop_at and time.time() >= stop_at:
+                break
+            continue
         match = SAMPLE_RE.search(text)
         if match and args.json:
             record = {"port": port, "ts": time.time()}
-            record.update({k: float(v) if "." in v else int(v) for k, v in match.groupdict().items()})
+            record.update({k: float(v) if "." in v else int(v)
+                           for k, v in match.groupdict().items() if v is not None})
             print(json.dumps(record, ensure_ascii=False), flush=True)
         else:
             print(text, flush=True)

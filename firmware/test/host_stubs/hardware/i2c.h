@@ -27,6 +27,9 @@ void simSetMeasuringCycles(int cycles);
 void simSetBusStuck(bool stuck);
 uint8_t simReg(uint8_t addr);
 std::vector<uint8_t> simWrittenRegisters();
+// Register addresses in write order; the only reliable way to assert that one
+// register was written before another.
+std::vector<uint8_t> simWriteOrder();
 
 int i2c_write_blocking(i2c_inst_t *i2c, uint8_t addr, const uint8_t *data,
                        size_t len, bool nostop);

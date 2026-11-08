@@ -87,6 +87,20 @@ bool Sensor::readCalibration() {
     return cal_.t1 != 0 && cal_.p1 != 0;
 }
 
+void Sensor::applyConfig(const monitor::Config &cfg) {
+    const uint8_t osr_t = monitor::osrField(cfg.osr_t);
+    const uint8_t osr_p = monitor::osrField(cfg.osr_p);
+    const uint8_t osr_h = monitor::osrField(cfg.osr_h);
+
+    // ctrl_hum first, then ctrl_meas, or the humidity oversampling is ignored.
+    writeRegister(REG_CTRL_HUM, osr_h);
+    // config: standby 500 ms (long enough for the longest x16/x16/x16
+    // conversion sequence), IIR filter as requested.
+    writeRegister(REG_CONFIG, (STANDBY_500MS << 5) | (cfg.filter << 2));
+    const uint8_t mode = cfg.forced ? MODE_FORCED : MODE_NORMAL;
+    writeRegister(REG_CTRL_MEAS, (osr_t << 5) | (osr_p << 2) | mode);
+}
+
 bool Sensor::begin() {
     if (readRegister(REG_CHIP_ID) != CHIP_ID_BME280) {
         return false;
@@ -108,6 +122,13 @@ bool Sensor::begin() {
 
     sleep_ms(100);
     return true;
+}
+
+void Sensor::triggerForced() {
+    // Re-writing ctrl_meas (mode bits = forced) starts one conversion; the
+    // oversampling fields must be preserved, so re-apply them.
+    const uint8_t osr_t = readRegister(REG_CTRL_MEAS);
+    writeRegister(REG_CTRL_MEAS, (osr_t & 0xFC) | MODE_FORCED);
 }
 
 bool Sensor::read(RawData *raw) {

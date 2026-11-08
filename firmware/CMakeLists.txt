@@ -18,6 +18,9 @@ add_executable(bme280_monitor
     src/bme280.cpp
     src/bme280_math.cpp
     src/i2c_scan.cpp
+    src/config.cpp
+    src/command.cpp
+    src/sampler.cpp
 )
 
 target_include_directories(bme280_monitor PRIVATE src)

@@ -5,7 +5,10 @@
 #include "pico/stdlib.h"
 
 #include "bme280.hpp"
+#include "command.hpp"
+#include "config.hpp"
 #include "i2c_scan.hpp"
+#include "sampler.hpp"
 
 // Raspberry Pi Pico 2 (RP2350) + BME280 on I2C0.
 //
@@ -22,12 +25,16 @@ constexpr uint8_t kI2cAddress = 0x76;
 
 constexpr uint8_t kLedPin = PICO_DEFAULT_LED_PIN;
 
-constexpr uint32_t kSampleIntervalMs = 2000;
-
 // The watchdog is the safety net: if anything ever wedges (USB stack, I2C
 // peripheral, a stuck bus) the chip resets and re-enumerates USB, instead of
-// vanishing from the bus until someone pulls the cable.
+// vanishing from the bus until someone pulls the cable. It stays fixed because
+// the sample loop kicks it while waiting, so a long sample interval cannot trip
+// it and a wedge still resets within 6 s.
 constexpr uint32_t kWatchdogTimeoutMs = 6000;
+
+constexpr unsigned int kLineCapacity = 64;
+
+monitor::Config g_config;
 
 void initLed() {
     gpio_init(kLedPin);
@@ -63,6 +70,121 @@ void reportScan(i2c_inst_t *i2c) {
     std::fflush(stdout);
 }
 
+void printHelp() {
+    std::printf(
+        "commands:\r\n"
+        "  get                             show current settings\r\n"
+        "  set interval=<100..3600000>     sample interval in ms\r\n"
+        "  set decimals=<0..6>             digits after the decimal point\r\n"
+        "  set average=<1..64>             moving average over raw ADC values\r\n"
+        "  set osr.t|osr.p|osr.h=<1|2|4|8|16>  oversampling per channel\r\n"
+        "  set filter=<0..4>               IIR filter (0=off,1=x2,2=x4,3=x8,4=x16)\r\n"
+        "  set mode=normal|forced          conversion mode\r\n"
+        "  set json=true|false             emit samples as one JSON object per line\r\n"
+        "  ping                            liveness check\r\n");
+    std::fflush(stdout);
+}
+
+void printConfig() {
+    char buf[128];
+    std::printf("%s\r\n", monitor::describe(g_config, buf, sizeof(buf)));
+    std::fflush(stdout);
+}
+
+// One sample, either as a JSON object (machine readable, consumed by the
+// collector service) or as aligned columns (human readable). Both honour the
+// decimals setting; JSON numbers stay valid at decimals=0 because %.*f then
+// prints a bare integer.
+void printSample(const bme280::Reading &r, const bme280::RawData &avg,
+                 unsigned int sample_count) {
+    const int d = g_config.decimals;
+    if (g_config.json) {
+        std::printf("{\"temperature_c\":%.*f,\"pressure_hpa\":%.*f,\"humidity_rh\":%.*f,"
+                    "\"dew_point_c\":%.*f,\"absolute_humidity_gm3\":%.*f,"
+                    "\"adc_t\":%u,\"adc_p\":%u,\"adc_h\":%u,\"samples\":%u}\r\n",
+                    d, r.temperature_c,
+                    d, r.pressure_pa / 100.0f,
+                    d, r.humidity_rh,
+                    d, bme280::dewPoint(r.temperature_c, r.humidity_rh),
+                    d, bme280::absoluteHumidity(r.temperature_c, r.humidity_rh),
+                    avg.temperature, avg.pressure, avg.humidity, sample_count);
+    } else {
+        std::printf("T=%*.*f C  P=%*.*f hPa  RH=%*.*f %%  |  dew=%*.*f C  AH=%*.*f g/m3  (adc T=%u P=%u H=%u n=%u)\r\n",
+                    d + 5, d, r.temperature_c,
+                    d + 7, d, r.pressure_pa / 100.0f,
+                    d + 4, d, r.humidity_rh,
+                    d + 4, d, bme280::dewPoint(r.temperature_c, r.humidity_rh),
+                    d + 3, d, bme280::absoluteHumidity(r.temperature_c, r.humidity_rh),
+                    avg.temperature, avg.pressure, avg.humidity, sample_count);
+    }
+    std::fflush(stdout);
+}
+
+// Consumes every line waiting on USB without blocking the sample loop.
+void pollCommands(bme280::Sensor *sensor) {
+    static char line[kLineCapacity];
+    static unsigned int length = 0;
+
+    while (true) {
+        const int c = getchar_timeout_us(0);
+        if (c == PICO_ERROR_TIMEOUT || c == PICO_ERROR_NO_DATA) {
+            return;
+        }
+        if (!monitor::feedChar(static_cast<char>(c), line, &length, kLineCapacity)) {
+            continue;
+        }
+
+        const char *key = nullptr;
+        const char *value = nullptr;
+        switch (monitor::parseLine(line, &key, &value)) {
+            case monitor::Command::None:
+                break;
+            case monitor::Command::Ping:
+                std::printf("pong\r\n");
+                std::fflush(stdout);
+                break;
+            case monitor::Command::Get:
+                printConfig();
+                break;
+            case monitor::Command::Help:
+                printHelp();
+                break;
+            case monitor::Command::Set: {
+                const char *message = nullptr;
+                if (monitor::applySetting(&g_config, key, value, &message) ==
+                    monitor::ParseResult::Ok) {
+                    std::printf("ok %s=%s\r\n", key, value);
+                    sensor->applyConfig(g_config);
+                } else {
+                    std::printf("error: %s: %s=%s\r\n", message, key, value);
+                }
+                printConfig();
+                std::fflush(stdout);
+                break;
+            }
+            case monitor::Command::Bad:
+                std::printf("error: unknown command (try 'help')\r\n");
+                std::fflush(stdout);
+                break;
+        }
+        watchdog_update();
+    }
+}
+
+// Sleeps in short slices, kicking the watchdog and draining commands, so a
+// `set interval=` or `set average=` takes effect promptly.
+void interruptibleSleep(uint32_t ms, bme280::Sensor *sensor) {
+    constexpr uint32_t kSliceMs = 50;
+    uint32_t remaining = ms;
+    while (remaining > 0) {
+        const uint32_t slice = remaining < kSliceMs ? remaining : kSliceMs;
+        sleep_ms(slice);
+        remaining -= slice;
+        watchdog_update();
+        pollCommands(sensor);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -79,6 +201,7 @@ int main() {
         std::printf("NOTE: the previous run was reset by the watchdog (it had wedged).\r\n");
     }
     std::printf("I2C0 sda=GP%d scl=GP%d addr=0x%02X\r\n", kSdaPin, kSclPin, kI2cAddress);
+    printConfig();
     std::fflush(stdout);
 
     // Three quick blinks prove the program is executing, independent of USB.
@@ -104,6 +227,7 @@ int main() {
         ledPattern(500, 2);
         watchdog_update();
     }
+    sensor.applyConfig(g_config);
 
     const bme280::Calibration &cal = sensor.calibration();
     std::printf("Calibration: T1=%u T2=%d T3=%d\r\n", cal.t1, cal.t2, cal.t3);
@@ -113,20 +237,35 @@ int main() {
                 cal.h1, cal.h2, cal.h3, cal.h4, cal.h5, cal.h6);
     std::fflush(stdout);
 
+    monitor::RawAverager averager;
+    averager.reset(g_config.average);
+    uint32_t applied_average = g_config.average;
+
     uint32_t consecutive_failures = 0;
     while (true) {
         watchdog_update();
+        pollCommands(&sensor);
+
+        if (applied_average != g_config.average) {
+            averager.reset(g_config.average);
+            applied_average = g_config.average;
+        }
 
         bme280::RawData raw;
         if (sensor.read(&raw)) {
             consecutive_failures = 0;
-            const bme280::Reading r = bme280::compensate(raw, sensor.calibration());
-            std::printf("T=%7.2f C  P=%9.2f hPa  RH=%6.2f %%  |  dew=%6.2f C  AH=%5.2f g/m3  (adc T=%u P=%u H=%u)\r\n",
-                        r.temperature_c, r.pressure_pa / 100.0f, r.humidity_rh,
-                        bme280::dewPoint(r.temperature_c, r.humidity_rh),
-                        bme280::absoluteHumidity(r.temperature_c, r.humidity_rh),
-                        raw.temperature, raw.pressure, raw.humidity);
-            std::fflush(stdout);
+            averager.push(raw);
+            const bme280::RawData avg = averager.average();
+            const bme280::Reading r = bme280::compensate(avg, sensor.calibration());
+
+            // %.*f takes the precision from the config; pico_printf supports the
+            // star form, so the decimals setting is honoured on the device.
+            printSample(r, avg, static_cast<unsigned int>(averager.count()));
+
+            if (g_config.forced) {
+                sensor.triggerForced();
+            }
+
             // One short blink per good sample.
             gpio_put(kLedPin, 1);
             sleep_ms(60);
@@ -143,8 +282,10 @@ int main() {
                     watchdog_update();
                     sleep_ms(2000);
                 }
+                sensor.applyConfig(g_config);
             }
         }
-        sleep_ms(kSampleIntervalMs);
+
+        interruptibleSleep(g_config.interval_ms, &sensor);
     }
 }

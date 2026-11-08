@@ -7,6 +7,7 @@
 #include <hardware/i2c.h>
 
 #include "bme280_math.hpp"
+#include "config.hpp"
 
 // BME280 driver for Raspberry Pi Pico 2 (RP2350) using pico-sdk.
 namespace bme280 {
@@ -31,12 +32,26 @@ constexpr uint8_t OSR_X1      = 0x01;
 constexpr uint8_t MODE_FORCED = 0x01;
 constexpr uint8_t MODE_NORMAL = 0x03;
 
+// Oversampling / filter fields are 3-bit encodings: 1=x1, 2=x2, 3=x4, 4=x8, 5=x16.
+constexpr uint8_t FILTER_X1   = 0x00;
+// Standby time for config[7:5]: 0=0.5ms 1=62.5 2=125 3=250 4=500 5=1000 7=10
+constexpr uint8_t STANDBY_500MS = 0x04;
+
 class Sensor {
 public:
     Sensor(i2c_inst_t *i2c, uint8_t address) : i2c_(i2c), address_(address) {}
 
     // Verifies chip ID, soft-resets, reads calibration and starts normal mode.
     bool begin();
+
+    // Applies oversampling, IIR filter and conversion mode at runtime. ctrl_hum
+    // is written before ctrl_meas because the humidity setting only latches
+    // when ctrl_meas is written afterwards (datasheet 3.4.4).
+    void applyConfig(const monitor::Config &cfg);
+
+    // Forced mode: writing ctrl_meas starts exactly one conversion. Call this
+    // after each sample to request the next one.
+    void triggerForced();
 
     // Blocking read: waits for the in-flight conversion to finish, then reads
     // 0xF7..0xFE (pressure, temperature) and 0xFD..0xFE (humidity) in one burst.

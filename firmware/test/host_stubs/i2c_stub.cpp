@@ -18,7 +18,12 @@ struct Sim {
     uint8_t pointer = 0;
     int measuring_cycles = 0;
     bool bus_stuck = false;
+    // Values written, in order (kept for the existing assertions).
     std::vector<uint8_t> written;
+    // Register addresses written, in order. This is what makes write-ordering
+    // assertions meaningful: recording values alone cannot prove that
+    // ctrl_hum preceded ctrl_meas.
+    std::vector<uint8_t> written_regs;
 };
 
 Sim g_sim;
@@ -79,6 +84,8 @@ uint8_t simReg(uint8_t addr) {
 
 std::vector<uint8_t> simWrittenRegisters() { return g_sim.written; }
 
+std::vector<uint8_t> simWriteOrder() { return g_sim.written_regs; }
+
 int i2c_write_blocking(i2c_inst_t *i2c, uint8_t addr, const uint8_t *data,
                        size_t len, bool nostop) {
     (void)nostop;
@@ -97,8 +104,10 @@ int i2c_write_blocking(i2c_inst_t *i2c, uint8_t addr, const uint8_t *data,
     // First byte is the register pointer; remaining bytes are data writes.
     g_sim.pointer = data[0];
     for (size_t i = 1; i < len; ++i) {
-        g_sim.regs[static_cast<uint8_t>(g_sim.pointer + i - 1)] = data[i];
+        const uint8_t reg = static_cast<uint8_t>(g_sim.pointer + i - 1);
+        g_sim.regs[reg] = data[i];
         g_sim.written.push_back(data[i]);
+        g_sim.written_regs.push_back(reg);
     }
     return static_cast<int>(len);
 }
