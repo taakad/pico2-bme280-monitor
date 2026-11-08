@@ -7,8 +7,15 @@
 # locations.
 set -euo pipefail
 
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+[ -f "$repo_root/scripts/env.sh" ] && . "$repo_root/scripts/env.sh"
+
 PGROOT="${PGROOT:-$HOME/toolchain/pgsql}"
+PGHOST="${PGHOST:-/tmp}"
 PGPORT="${PGPORT:-5433}"
+PGDATABASE="${PGDATABASE:-pico_monitor}"
+PGUSER="${PGUSER:-pico}"
+PGPASSWORD="${PGPASSWORD:-}"
 PGDATA="$PGROOT/data"
 
 pgbin=""
@@ -35,29 +42,37 @@ if [ -e "$pgbin/../lib/postgresql/timescaledb.dylib" ] || \
             "$PGDATA/postgresql.conf"
         rm -f "$PGDATA/postgresql.conf.bak"
         echo "enabled timescaledb in shared_preload_libraries"
-        if "$pgbin/pg_isready" -h /tmp -p "$PGPORT" -q; then
+        if "$pgbin/pg_isready" -h "$PGHOST" -p "$PGPORT" -q; then
             "$pgbin/pg_ctl" -D "$PGDATA" -l "$PGROOT/server.log" -m fast -w restart
             need_restart=yes
         fi
     fi
 fi
 
-if [ "$need_restart" = no ] && "$pgbin/pg_isready" -h /tmp -p "$PGPORT" -q; then
+if [ "$need_restart" = no ] && "$pgbin/pg_isready" -h "$PGHOST" -p "$PGPORT" -q; then
     echo "already running on port $PGPORT"
 elif [ "$need_restart" = no ]; then
     mkdir -p "$PGDATA"
     if [ ! -f "$PGDATA/PG_VERSION" ]; then
-        echo "initialising cluster at $PGDATA (superuser: pico, trust auth)"
-        "$pgbin/initdb" -D "$PGDATA" -U pico --auth=trust >/dev/null
+        echo "initialising cluster at $PGDATA (superuser: $PGUSER, trust auth)"
+        "$pgbin/initdb" -D "$PGDATA" -U "$PGUSER" --auth=trust >/dev/null
+        if [ -n "$PGPASSWORD" ]; then
+            # Set the superuser password over the trust-auth socket, then
+            # require it for subsequent connections.
+            "$pgbin/psql" -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres \
+                -c "ALTER USER \"$PGUSER\" PASSWORD '$PGPASSWORD';" >/dev/null
+            sed -i.bak 's/\btrust\b/scram-sha-256/g' "$PGDATA/pg_hba.conf"
+            rm -f "$PGDATA/pg_hba.conf.bak"
+            echo "password auth enabled for $PGUSER"
+        fi
     fi
     "$pgbin/pg_ctl" -D "$PGDATA" -l "$PGROOT/server.log" \
         -o "-p $PGPORT -k /tmp" -w start
 fi
 
 # Make sure the app database and schema exist (both idempotent).
-if ! "$pgbin/psql" -h /tmp -p "$PGPORT" -U pico -lqt | cut -d '|' -f 1 | grep -qw pico_monitor; then
-    "$pgbin/createdb" -h /tmp -p "$PGPORT" -U pico pico_monitor
+if ! "$pgbin/psql" -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -lqt | cut -d '|' -f 1 | grep -qw "$PGDATABASE"; then
+    "$pgbin/createdb" -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$PGDATABASE"
 fi
-repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-"$pgbin/psql" -h /tmp -p "$PGPORT" -U pico -d pico_monitor -q -f "$repo_root/db/schema.sql"
-echo "schema applied; psql -h /tmp -p $PGPORT -U pico -d pico_monitor"
+"$pgbin/psql" -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -q -f "$repo_root/db/schema.sql"
+echo "schema applied; psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE"

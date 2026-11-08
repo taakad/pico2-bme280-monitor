@@ -50,8 +50,9 @@ if (Test-Path $uf2) {
     New-Item -ItemType Directory -Force -Path (Join-Path $stage "firmware/uf2") | Out-Null
     Copy-Item $uf2 (Join-Path $stage "firmware/uf2/bme280_monitor.uf2")
 }
-# MSI ショートカットの宛先: installer/setup.cmd をバンドル直下に配置
+# フォームインストーラー: setup.cmd + setup.ps1 をバンドル直下に配置
 Copy-Item "installer/setup.cmd" (Join-Path $stage "setup.cmd")
+Copy-Item "installer/windows/setup.ps1" (Join-Path $stage "setup.ps1")
 
 # zip バンドルと同じ形に整える: ステージ直下ではなく <baseName>/ 配下にまとめる
 if (Test-Path $bundle) { Remove-Item -Recurse -Force $bundle }

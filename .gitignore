@@ -23,3 +23,8 @@ dist/
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+
+# Installer-generated local configuration
+config.json
+scripts/env.sh
+scripts/env.cmd

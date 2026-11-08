@@ -6,7 +6,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-
+[ -f "$repo_root/scripts/env.sh" ] && . "$repo_root/scripts/env.sh"
 export PGHOST="${PGHOST:-/tmp}"
 export PGPORT="${PGPORT:-5433}"
 export PGDATABASE="${PGDATABASE:-pico_monitor}"
