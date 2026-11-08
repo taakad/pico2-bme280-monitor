@@ -94,9 +94,11 @@ void Sensor::applyConfig(const monitor::Config &cfg) {
 
     // ctrl_hum first, then ctrl_meas, or the humidity oversampling is ignored.
     writeRegister(REG_CTRL_HUM, osr_h);
-    // config: standby 500 ms (long enough for the longest x16/x16/x16
-    // conversion sequence), IIR filter as requested.
-    writeRegister(REG_CONFIG, (STANDBY_500MS << 5) | (cfg.filter << 2));
+    // config: standby chosen from the sample interval. 500 ms covers the
+    // longest x16/x16/x16 conversion and saves power at slow rates; fast
+    // sampling needs the 0.5 ms standby to reach the ~190 Hz ceiling.
+    const uint8_t standby = cfg.interval_ms < 1000 ? STANDBY_0_5MS : STANDBY_500MS;
+    writeRegister(REG_CONFIG, (standby << 5) | (cfg.filter << 2));
     const uint8_t mode = cfg.forced ? MODE_FORCED : MODE_NORMAL;
     writeRegister(REG_CTRL_MEAS, (osr_t << 5) | (osr_p << 2) | mode);
 }
@@ -136,14 +138,17 @@ bool Sensor::read(RawData *raw) {
         return false;
     }
 
-    // Wait for any in-flight conversion to complete.
+    // Wait for any in-flight conversion to complete. The budget covers the
+    // worst case (x16/x16/x16, ~73 ms per datasheet): if the requested rate
+    // outruns the sensor, the loop self-throttles to the sensor's pace rather
+    // than reporting failures.
     bool done = false;
-    for (int attempt = 0; attempt < 100; ++attempt) {
+    for (int attempt = 0; attempt < 200; ++attempt) {
         if ((readRegister(REG_STATUS) & kStatusMeasuringMask) == 0) {
             done = true;
             break;
         }
-        sleep_ms(1);
+        sleep_us(500);
     }
     if (!done) {
         return false;

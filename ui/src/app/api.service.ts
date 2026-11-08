@@ -36,6 +36,12 @@ export interface SeriesPoint {
   pressure_hpa_max?: number;
   humidity_rh_min?: number;
   humidity_rh_max?: number;
+  dew_point_c?: number;
+  dew_point_c_min?: number;
+  dew_point_c_max?: number;
+  absolute_humidity_gm3?: number;
+  absolute_humidity_gm3_min?: number;
+  absolute_humidity_gm3_max?: number;
   n?: number;
 }
 

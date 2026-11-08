@@ -308,6 +308,17 @@ void testApplyConfigRegisters() {
     const size_t meas = lastWriteIndexOf(order, 0xF4);
     check(hum != SIZE_MAX && meas != SIZE_MAX && hum < meas,
           "applyConfig writes ctrl_hum before ctrl_meas");
+
+    // Standby follows the sample interval: fast sampling needs 0.5 ms standby
+    // to reach the sensor's ~190 Hz ceiling; slow sampling keeps 500 ms.
+    monitor::Config fast;
+    fast.interval_ms = 5;
+    sensor.applyConfig(fast);
+    check((simReg(0xF5) >> 5) == 0x00, "fast interval selects 0.5 ms standby");
+    monitor::Config slow;
+    slow.interval_ms = 2000;
+    sensor.applyConfig(slow);
+    check((simReg(0xF5) >> 5) == 0x04, "slow interval selects 500 ms standby");
 }
 
 void testConfigSettingValidation() {
@@ -319,9 +330,12 @@ void testConfigSettingValidation() {
           "interval=500 accepted");
     check(cfg.interval_ms == 500, "interval applied");
 
-    check(monitor::applySetting(&cfg, "interval", "50", &msg) == monitor::ParseResult::BadValue,
+    check(monitor::applySetting(&cfg, "interval", "5", &msg) == monitor::ParseResult::Ok,
+          "interval=5 accepted (sensor-limited, not loop-limited)");
+    check(cfg.interval_ms == 5, "fast interval applied");
+    check(monitor::applySetting(&cfg, "interval", "4", &msg) == monitor::ParseResult::BadValue,
           "interval below the floor rejected");
-    check(cfg.interval_ms == 500, "rejected setting leaves config untouched");
+    check(cfg.interval_ms == 5, "rejected setting leaves config untouched");
 
     check(monitor::applySetting(&cfg, "decimals", "4", &msg) == monitor::ParseResult::Ok,
           "decimals=4 accepted");
@@ -369,7 +383,8 @@ void testConfigSettingValidation() {
 
     char buf[128];
     monitor::describe(cfg, buf, sizeof(buf));
-    check(std::strstr(buf, "interval=500") != nullptr, "describe includes interval");
+    // cfg holds interval=5 at this point (the fast value was accepted above).
+    check(std::strstr(buf, "interval=5 ") != nullptr, "describe includes interval");
     check(std::strstr(buf, "mode=forced") != nullptr, "describe includes mode");
 }
 

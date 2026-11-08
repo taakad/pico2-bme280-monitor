@@ -30,7 +30,7 @@ test('validateSettings accepts a full valid payload', () => {
 
 test('validateSettings rejects out-of-range values', () => {
     const cases = [
-        { interval_ms: 50 },
+        { interval_ms: 4 },
         { interval_ms: 4000000 },
         { decimals: 9 },
         { average: 0 },

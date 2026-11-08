@@ -14,7 +14,7 @@ const state = {
 };
 
 // Samples are buffered and written in batches: one INSERT per batch keeps the
-// database load trivial even at a 100 ms interval.
+// database load trivial even at the fastest cadence (5 ms, ~170 samples/s).
 const FLUSH_INTERVAL_MS = 2000;
 let batch = [];
 let flushTimer = null;

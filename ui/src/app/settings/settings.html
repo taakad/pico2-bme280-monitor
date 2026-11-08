@@ -22,7 +22,7 @@
       <div class="row">
         <input type="number" name="interval" [ngModel]="form().interval_ms"
                (ngModelChange)="patch('interval_ms', +$event)"
-               [min]="limits.intervalMin" [max]="limits.intervalMax" step="100" required />
+               [min]="limits.intervalMin" [max]="limits.intervalMax" step="5" required />
         <span class="unit">ms</span>
       </div>
       <div class="presets">
@@ -31,7 +31,7 @@
                   (click)="patch('interval_ms', p.value)">{{ p.label }}</button>
         }
       </div>
-      <small>{{ rowsPerDay() }} 行/日 を PostgreSQL に保存</small>
+      <small>最短 5 ms（BME280 の物理的な上限は約 190 Hz／約 5 ms）。{{ rowsPerDay() }} 行/日 を PostgreSQL に保存</small>
     </label>
 
     <label>

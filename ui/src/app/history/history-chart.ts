@@ -11,7 +11,11 @@ export interface Metric {
 }
 
 // SVG line chart with an optional min/max band, drawn by hand so the app has
-// no chart dependency. It re-fetches whenever from/to/bucket change.
+// no chart dependency. It re-fetches whenever from/to/bucket/refreshKey change.
+//
+// The dashboard renders one chart per measurement, so the y axis is labelled
+// with that metric's own scale: a single shared axis across °C / hPa / %RH is
+// unreadable, which is exactly what the per-chart axes fix.
 @Component({
   selector: 'app-history-chart',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -32,8 +36,8 @@ export class HistoryChartComponent {
   readonly loading = signal(false);
 
   private readonly width = 900;
-  private readonly height = 260;
-  private readonly pad = { left: 46, right: 14, top: 14, bottom: 26 };
+  private readonly height = 240;
+  private readonly pad = { left: 58, right: 14, top: 14, bottom: 26 };
 
   constructor() {
     effect(() => {
@@ -84,35 +88,66 @@ export class HistoryChartComponent {
     return this.pad.left + ((Date.parse(ts) - t0) / (t1 - t0)) * this.plotW;
   }
 
-  // Each metric gets its own y scale; the chart overlays them, which is what a
-  // temperature/pressure/humidity comparison needs.
-  private scaleFor(metric: Metric): (v: number) => number {
+  // Value range across the chart's metrics (line + band), padded so the line
+  // never touches the frame.
+  private valueRange(): { lo: number; hi: number } | null {
     const pts = this.points();
     const values: number[] = [];
-    for (const p of pts) {
-      const v = p[metric.key];
-      if (typeof v === 'number') values.push(v);
-      if (metric.minKey && typeof p[metric.minKey] === 'number') values.push(p[metric.minKey] as number);
-      if (metric.maxKey && typeof p[metric.maxKey] === 'number') values.push(p[metric.maxKey] as number);
+    for (const m of this.metrics()) {
+      for (const p of pts) {
+        const v = p[m.key];
+        if (typeof v === 'number') values.push(v);
+        if (m.minKey && typeof p[m.minKey] === 'number') values.push(p[m.minKey] as number);
+        if (m.maxKey && typeof p[m.maxKey] === 'number') values.push(p[m.maxKey] as number);
+      }
     }
     if (values.length === 0) {
-      return () => this.pad.top + this.plotH / 2;
+      return null;
     }
     let lo = Math.min(...values);
     let hi = Math.max(...values);
     if (hi - lo < 1e-9) {
-      lo -= 1;
-      hi += 1;
+      // A flat series still needs a span, otherwise the scale divides by zero.
+      const span = Math.max(Math.abs(lo) * 0.02, 1);
+      lo -= span / 2;
+      hi += span / 2;
     }
     const margin = (hi - lo) * 0.08;
-    lo -= margin;
-    hi += margin;
-    return (v: number) => this.pad.top + (1 - (v - lo) / (hi - lo)) * this.plotH;
+    return { lo: lo - margin, hi: hi + margin };
+  }
+
+  // Rounded bounds so the axis labels are round numbers rather than the raw
+  // min/max (e.g. 23.81..24.19 -> 23.75..24.25 with a 0.25 step).
+  private niceRange(): { lo: number; hi: number; step: number } | null {
+    const r = this.valueRange();
+    if (!r) {
+      return null;
+    }
+    const rawStep = (r.hi - r.lo) / 4;
+    const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+    const step = [1, 2, 2.5, 5, 10]
+      .map((f) => f * magnitude)
+      .find((s) => s >= rawStep) ?? 10 * magnitude;
+    const lo = Math.floor(r.lo / step) * step;
+    const hi = Math.max(lo + step, Math.ceil(r.hi / step) * step);
+    return { lo, hi, step };
+  }
+
+  private scale(): ((v: number) => number) | null {
+    const r = this.niceRange();
+    if (!r) {
+      return null;
+    }
+    return (v: number) => this.pad.top + (1 - (v - r.lo) / (r.hi - r.lo)) * this.plotH;
   }
 
   linePath(metric: Metric): string {
-    const y = this.scaleFor(metric);
+    const y = this.scale();
+    if (!y) {
+      return '';
+    }
     return this.points()
+      .filter((p) => typeof p[metric.key] === 'number')
       .map((p, i) => `${i === 0 ? 'M' : 'L'} ${this.x(p.ts).toFixed(1)} ${y(p[metric.key] as number).toFixed(1)}`)
       .join(' ');
   }
@@ -121,11 +156,11 @@ export class HistoryChartComponent {
     if (!metric.minKey || !metric.maxKey) {
       return '';
     }
+    const y = this.scale();
     const pts = this.points().filter((p) => typeof p[metric.minKey!] === 'number' && typeof p[metric.maxKey!] === 'number');
-    if (pts.length < 2) {
+    if (!y || pts.length < 2) {
       return '';
     }
-    const y = this.scaleFor(metric);
     const up = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${this.x(p.ts).toFixed(1)} ${y(p[metric.maxKey!] as number).toFixed(1)}`);
     const down = [...pts]
       .reverse()
@@ -133,11 +168,21 @@ export class HistoryChartComponent {
     return `${up.join(' ')} ${down.join(' ')} Z`;
   }
 
-  // Horizontal rules carry no y labels: each metric has its own scale, so the
-  // legend and the footer readouts are what give the lines meaning.
-  readonly gridLines = computed(() =>
-    [0, 0.25, 0.5, 0.75, 1].map((f) => this.pad.top + f * this.plotH),
-  );
+  // Horizontal grid lines carrying the value they stand for. One metric per
+  // chart means one scale, so the labels are unambiguous.
+  readonly yTicks = computed(() => {
+    const r = this.niceRange();
+    if (!r) {
+      return [];
+    }
+    const y = this.scale()!;
+    const decimals = r.step >= 1 ? 0 : Math.min(3, Math.max(1, -Math.floor(Math.log10(r.step))));
+    const ticks: { y: number; label: string }[] = [];
+    for (let v = r.lo; v <= r.hi + r.step * 1e-6; v += r.step) {
+      ticks.push({ y: y(v), label: v.toFixed(decimals) });
+    }
+    return ticks;
+  });
 
   readonly timeTicks = computed(() => {
     const [t0, t1] = this.timeRange();
@@ -154,6 +199,13 @@ export class HistoryChartComponent {
     }
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }
+
+  // Single-metric charts use the metric name + unit as the heading, which is
+  // what tells the reader what the y axis means.
+  readonly title = computed(() => {
+    const ms = this.metrics();
+    return ms.length === 1 ? `${ms[0].label} (${ms[0].unit})` : '測定値の推移';
+  });
 
   readonly lastValue = computed(() => {
     const pts = this.points();

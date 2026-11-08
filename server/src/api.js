@@ -48,7 +48,7 @@ export function validateSettings(body) {
         }
         out[key] = v;
     };
-    num('interval_ms', 100, 3600000);
+    num('interval_ms', 5, 3600000);
     num('decimals', 0, 6);
     num('average', 1, 64);
     for (const key of ['osr_t', 'osr_p', 'osr_h']) {

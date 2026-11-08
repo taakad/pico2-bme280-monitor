@@ -1,13 +1,15 @@
 <section class="chart">
   <header>
-    <h3>推移</h3>
-    <ul class="legend">
-      @for (m of metrics(); track m.key) {
-        <li>
-          <span class="swatch" [style.background]="m.color"></span>{{ m.label }}
-        </li>
-      }
-    </ul>
+    <h3>{{ title() }}</h3>
+    @if (metrics().length > 1) {
+      <ul class="legend">
+        @for (m of metrics(); track m.key) {
+          <li>
+            <span class="swatch" [style.background]="m.color"></span>{{ m.label }}
+          </li>
+        }
+      </ul>
+    }
     <span class="meta">
       {{ points().length }} 点 / 生データ {{ sampleCount() }} 件
       @if (loading()) {
@@ -22,13 +24,14 @@
     <p class="empty">この区間にデータがありません。Pico を接続して測定を開始してください。</p>
   }
 
-  <svg [attr.viewBox]="'0 0 900 260'" preserveAspectRatio="none" role="img" aria-label="測定値の推移グラフ">
-    @for (y of gridLines(); track $index) {
-      <line class="grid" x1="46" [attr.y1]="y" x2="886" [attr.y2]="y" />
+  <svg [attr.viewBox]="'0 0 900 240'" preserveAspectRatio="none" role="img" [attr.aria-label]="title() + ' の推移グラフ'">
+    @for (t of yTicks(); track $index) {
+      <line class="grid" x1="58" [attr.y1]="t.y" x2="886" [attr.y2]="t.y" />
+      <text class="axis" x="52" [attr.y]="t.y + 3" text-anchor="end">{{ t.label }}</text>
     }
     @for (t of timeTicks(); track $index) {
-      <line class="grid vertical" [attr.x1]="t.x" y1="14" [attr.x2]="t.x" y2="234" />
-      <text class="axis" [attr.x]="t.x" y="250" text-anchor="middle">{{ t.label }}</text>
+      <line class="grid vertical" [attr.x1]="t.x" y1="14" [attr.x2]="t.x" y2="214" />
+      <text class="axis" [attr.x]="t.x" y="230" text-anchor="middle">{{ t.label }}</text>
     }
 
     @for (m of metrics(); track m.key) {

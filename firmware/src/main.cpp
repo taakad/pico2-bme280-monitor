@@ -20,7 +20,9 @@ namespace {
 
 constexpr uint8_t kSdaPin = 4;
 constexpr uint8_t kSclPin = 5;
-constexpr uint32_t kI2cBaud = 100000;
+// BME280 supports 400 kHz Fast mode; the shorter bus transfer matters once
+// the sample interval drops to the sensor's ~190 Hz ceiling.
+constexpr uint32_t kI2cBaud = 400000;
 constexpr uint8_t kI2cAddress = 0x76;
 
 constexpr uint8_t kLedPin = PICO_DEFAULT_LED_PIN;
@@ -74,7 +76,7 @@ void printHelp() {
     std::printf(
         "commands:\r\n"
         "  get                             show current settings\r\n"
-        "  set interval=<100..3600000>     sample interval in ms\r\n"
+        "  set interval=<5..3600000>      sample interval in ms (sensor max ~190 Hz)\r\n"
         "  set decimals=<0..6>             digits after the decimal point\r\n"
         "  set average=<1..64>             moving average over raw ADC values\r\n"
         "  set osr.t|osr.p|osr.h=<1|2|4|8|16>  oversampling per channel\r\n"
@@ -266,9 +268,12 @@ int main() {
                 sensor.triggerForced();
             }
 
-            // One short blink per good sample.
+            // One short blink per good sample. The blink is scaled to the
+            // interval: a fixed 60 ms blink would cap the loop at ~16 Hz.
             gpio_put(kLedPin, 1);
-            sleep_ms(60);
+            if (g_config.interval_ms >= 200) {
+                sleep_ms(60);
+            }
             gpio_put(kLedPin, 0);
         } else {
             ++consecutive_failures;

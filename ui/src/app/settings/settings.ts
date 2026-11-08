@@ -38,6 +38,8 @@ export class SettingsComponent implements OnInit {
 
   // Presets for the interval, plus a free numeric field for anything else.
   readonly intervalPresets: Option<number>[] = [
+    { value: 10, label: '10 ms（最大速度）' },
+    { value: 50, label: '50 ms' },
     { value: 500, label: '0.5 秒' },
     { value: 1000, label: '1 秒' },
     { value: 2000, label: '2 秒（既定）' },
@@ -69,7 +71,7 @@ export class SettingsComponent implements OnInit {
   ];
 
   // Mirrors the firmware's own bounds so the form cannot submit a rejection.
-  readonly limits = { intervalMin: 100, intervalMax: 3600000, decimalsMax: 6 };
+  readonly limits = { intervalMin: 5, intervalMax: 3600000, decimalsMax: 6 };
 
   constructor() {
     // Keep the form in step with what the device reports, unless the user has
@@ -141,8 +143,8 @@ export class SettingsComponent implements OnInit {
     this.dirty.set(true);
   }
 
-  // Estimated storage cost of the current cadence, so a 100 ms interval is a
-  // deliberate choice rather than an accident.
+  // Estimated storage cost of the current cadence, so a 5 ms interval (about
+  // 17 million rows/day) is a deliberate choice rather than an accident.
   readonly rowsPerDay = computed(() => Math.round(86400000 / this.form().interval_ms));
 
   private errText(err: unknown): string {

@@ -72,3 +72,9 @@
   border-color: #4f9cf9;
   background: rgba(79, 156, 249, 0.12);
 }
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 1rem;
+}

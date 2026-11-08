@@ -36,6 +36,7 @@ constexpr uint8_t MODE_NORMAL = 0x03;
 constexpr uint8_t FILTER_X1   = 0x00;
 // Standby time for config[7:5]: 0=0.5ms 1=62.5 2=125 3=250 4=500 5=1000 7=10
 constexpr uint8_t STANDBY_500MS = 0x04;
+constexpr uint8_t STANDBY_0_5MS = 0x00;
 
 class Sensor {
 public:

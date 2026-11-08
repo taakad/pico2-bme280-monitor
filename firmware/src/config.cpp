@@ -78,11 +78,13 @@ ParseResult applySetting(Config *cfg, const char *key, const char *value,
     }
 
     if (keyEquals(key, "interval") || keyEquals(key, "interval_ms")) {
-        // 100 ms is the practical floor: the sensor conversion plus I2C
-        // transfers need room, and the watchdog budget assumes samples land
-        // well inside it.
-        if (number < 100 || number > 3600000) {
-            *message = "interval must be 100..3600000 ms";
+        // 5 ms is the floor the firmware can service; the BME280 itself
+        // cannot convert faster than ~190 Hz (datasheet max output rate with
+        // x1/x1/x1 oversampling and 0.5 ms standby), so below ~6 ms the loop
+        // simply runs as fast as the sensor delivers. The watchdog is safe
+        // because the sample loop kicks it every iteration.
+        if (number < 5 || number > 3600000) {
+            *message = "interval must be 5..3600000 ms (BME280 max rate ~190 Hz)";
             return ParseResult::BadValue;
         }
         next.interval_ms = number;

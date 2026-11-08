@@ -28,8 +28,13 @@
   }
 </section>
 
-<app-history-chart
-  [from]="rangeStart(range())"
-  [to]="rangeEnd()"
-  [bucket]="range().bucket"
-  [metrics]="metrics" />
+<section class="charts" aria-label="測定値の推移">
+  @for (c of charts; track c.key) {
+    <app-history-chart
+      [from]="rangeStart(range())"
+      [to]="rangeEnd()"
+      [bucket]="range().bucket"
+      [metrics]="[c]"
+      [refreshKey]="refreshKey()" />
+  }
+</section>

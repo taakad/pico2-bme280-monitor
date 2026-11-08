@@ -71,5 +71,45 @@ CREATE TABLE IF NOT EXISTS measurement_hourly (
     humidity_rh_avg         REAL,
     humidity_rh_min         REAL,
     humidity_rh_max         REAL,
+    dew_point_c_avg         REAL,
+    dew_point_c_min         REAL,
+    dew_point_c_max         REAL,
+    absolute_humidity_gm3_avg REAL,
+    absolute_humidity_gm3_min REAL,
+    absolute_humidity_gm3_max REAL,
     PRIMARY KEY (device_id, bucket)
 );
+
+-- Idempotent upgrades for databases created before a column existed.
+ALTER TABLE measurement_hourly ADD COLUMN IF NOT EXISTS dew_point_c_avg REAL;
+ALTER TABLE measurement_hourly ADD COLUMN IF NOT EXISTS dew_point_c_min REAL;
+ALTER TABLE measurement_hourly ADD COLUMN IF NOT EXISTS dew_point_c_max REAL;
+ALTER TABLE measurement_hourly ADD COLUMN IF NOT EXISTS absolute_humidity_gm3_avg REAL;
+ALTER TABLE measurement_hourly ADD COLUMN IF NOT EXISTS absolute_humidity_gm3_min REAL;
+ALTER TABLE measurement_hourly ADD COLUMN IF NOT EXISTS absolute_humidity_gm3_max REAL;
+
+-- Backfill rollup rows written before those columns existed, so long-range
+-- charts of dew point / absolute humidity are not blank for old data. Only
+-- rows with a NULL average are touched, so this is a no-op once caught up.
+UPDATE measurement_hourly mh
+   SET dew_point_c_avg = a.dew_avg,
+       dew_point_c_min = a.dew_min,
+       dew_point_c_max = a.dew_max,
+       absolute_humidity_gm3_avg = a.abs_avg,
+       absolute_humidity_gm3_min = a.abs_min,
+       absolute_humidity_gm3_max = a.abs_max
+  FROM (
+        SELECT device_id,
+               date_trunc('hour', ts) AS bucket,
+               AVG(dew_point_c)            AS dew_avg,
+               MIN(dew_point_c)            AS dew_min,
+               MAX(dew_point_c)            AS dew_max,
+               AVG(absolute_humidity_gm3)  AS abs_avg,
+               MIN(absolute_humidity_gm3)  AS abs_min,
+               MAX(absolute_humidity_gm3)  AS abs_max
+          FROM measurement
+         GROUP BY 1, 2
+  ) a
+ WHERE mh.device_id = a.device_id
+   AND mh.bucket = a.bucket
+   AND mh.dew_point_c_avg IS NULL;

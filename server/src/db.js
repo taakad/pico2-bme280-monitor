@@ -50,11 +50,15 @@ async function refreshHourly(deviceId, minTs, maxTs) {
              device_id, bucket, n,
              temperature_c_avg, temperature_c_min, temperature_c_max,
              pressure_hpa_avg, pressure_hpa_min, pressure_hpa_max,
-             humidity_rh_avg, humidity_rh_min, humidity_rh_max)
+             humidity_rh_avg, humidity_rh_min, humidity_rh_max,
+             dew_point_c_avg, dew_point_c_min, dew_point_c_max,
+             absolute_humidity_gm3_avg, absolute_humidity_gm3_min, absolute_humidity_gm3_max)
          SELECT $1, t.bucket, COUNT(*),
                 AVG(m.temperature_c), MIN(m.temperature_c), MAX(m.temperature_c),
                 AVG(m.pressure_hpa), MIN(m.pressure_hpa), MAX(m.pressure_hpa),
-                AVG(m.humidity_rh), MIN(m.humidity_rh), MAX(m.humidity_rh)
+                AVG(m.humidity_rh), MIN(m.humidity_rh), MAX(m.humidity_rh),
+                AVG(m.dew_point_c), MIN(m.dew_point_c), MAX(m.dew_point_c),
+                AVG(m.absolute_humidity_gm3), MIN(m.absolute_humidity_gm3), MAX(m.absolute_humidity_gm3)
            FROM touched t
            JOIN measurement m ON m.device_id = $1 AND date_trunc('hour', m.ts) = t.bucket
           GROUP BY t.bucket
@@ -68,7 +72,13 @@ async function refreshHourly(deviceId, minTs, maxTs) {
              pressure_hpa_max = EXCLUDED.pressure_hpa_max,
              humidity_rh_avg = EXCLUDED.humidity_rh_avg,
              humidity_rh_min = EXCLUDED.humidity_rh_min,
-             humidity_rh_max = EXCLUDED.humidity_rh_max`,
+             humidity_rh_max = EXCLUDED.humidity_rh_max,
+             dew_point_c_avg = EXCLUDED.dew_point_c_avg,
+             dew_point_c_min = EXCLUDED.dew_point_c_min,
+             dew_point_c_max = EXCLUDED.dew_point_c_max,
+             absolute_humidity_gm3_avg = EXCLUDED.absolute_humidity_gm3_avg,
+             absolute_humidity_gm3_min = EXCLUDED.absolute_humidity_gm3_min,
+             absolute_humidity_gm3_max = EXCLUDED.absolute_humidity_gm3_max`,
         [deviceId, minTs, maxTs],
     );
 }
@@ -159,6 +169,9 @@ export async function series({ deviceId, from, to, bucket = '5m' }) {
                     temperature_c_avg AS temperature_c, temperature_c_min, temperature_c_max,
                     pressure_hpa_avg  AS pressure_hpa,  pressure_hpa_min,  pressure_hpa_max,
                     humidity_rh_avg   AS humidity_rh,   humidity_rh_min,   humidity_rh_max,
+                    dew_point_c_avg   AS dew_point_c,   dew_point_c_min,   dew_point_c_max,
+                    absolute_humidity_gm3_avg AS absolute_humidity_gm3,
+                    absolute_humidity_gm3_min, absolute_humidity_gm3_max,
                     n
                FROM measurement_hourly
               WHERE device_id = $1 AND bucket >= $2 AND bucket <= $3
@@ -178,6 +191,12 @@ export async function series({ deviceId, from, to, bucket = '5m' }) {
                 AVG(humidity_rh)   AS humidity_rh,
                 MIN(humidity_rh)   AS humidity_rh_min,
                 MAX(humidity_rh)   AS humidity_rh_max,
+                AVG(dew_point_c)   AS dew_point_c,
+                MIN(dew_point_c)   AS dew_point_c_min,
+                MAX(dew_point_c)   AS dew_point_c_max,
+                AVG(absolute_humidity_gm3) AS absolute_humidity_gm3,
+                MIN(absolute_humidity_gm3) AS absolute_humidity_gm3_min,
+                MAX(absolute_humidity_gm3) AS absolute_humidity_gm3_max,
                 COUNT(*)::int AS n
            FROM measurement
           WHERE device_id = $1 AND ts >= $2 AND ts <= $3
