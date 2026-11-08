@@ -206,6 +206,42 @@ scripts/package.sh
 # → dist/pico2-bme280-monitor-<tag>.dmg（macOS ディスクイメージ）
 ```
 
+#### リリースワークフロー（.dmg / .msi の自動ビルド）
+
+GitHub Actions の **Release** ワークフローが、Windows・macOS 双方の
+インストーラを **任意のタイミング** でビルドできます。
+
+- **手動実行（Actions タブ → Release → Run workflow）**
+  - `version`: バージョン（例 `v1.4.0`）。空だと最新タグから自動採番
+    （`v1.4.1-dev<日時>`）
+  - `prerelease`: on/off で **pre-release / release** のどちらとして公開するか選択
+- **タグ push**: `v*` タグの push でも発火。`v1.4.0` は release、
+  `v1.4.0-beta1` のように `-` を含むタグは pre-release 扱い。
+
+ワークフローは次のジョブで構成されます（`firmware` の UF2 を両 OS に共有）:
+
+| ジョブ | ランナー | 成果物 |
+|--------|----------|--------|
+| firmware | ubuntu-latest | `bme280_monitor.uf2` + `SHA256SUMS` |
+| macOS | macos-latest | `.dmg`（+ 共通 `.zip`） |
+| Windows | windows-latest | `.msi`（WiX Toolset 7 + `scripts/build-msi.ps1`）+ SHA256 |
+
+MSI（`installer/product.wxs`）はアプリ一式を Program Files に展開し、
+スタートメニューに「セットアップ」（`install.ps1 -Service` を実行）と
+「コレクター起動」のショートカットを作成します。
+
+> **注意**: WiX の MSI リンクは Windows の `msi.dll` が必要なため、
+> `.msi` の生成は Windows ランナーでのみ行えます。macOS では
+> `pwsh scripts/build-msi.ps1 -CompileOnly` で .wxs の構文検証まで可能です
+> （CI の `Installer (MSI) syntax check` ジョブが毎 push で検証）。
+
+ローカル環境（macOS）のセットアップ:
+
+```sh
+brew install dotnet powershell
+dotnet tool install -g Wix        # WiX Toolset 7（EULA 同意: -acceptEula wix7 をスクリプトが付与）
+```
+
 ---
 
 ## 配線
@@ -274,6 +310,10 @@ scripts/             セットアップ / ビルド / テスト / 書き込み /
   install.sh           macOS インストーラ（--service で launchd 常駐化）
   install.ps1          Windows インストーラ（-Service でタスクスケジューラ登録）
   package.sh           配布バンドル（zip / DMG）作成
+  build-msi.ps1        Windows MSI ビルド（WiX 7。-CompileOnly で構文検証）
+installer/           MSI インストーラ定義
+  product.wxs          WiX v4 スキーマの MSI 定義（Release ワークフローで使用）
+  setup.cmd            インストール後のセットアップ起動用
 legacy/              元の MicroPython スクリプト（参考保存、動作しません）
 docs/                追加ドキュメント
   review-findings.md   元の Python 実装で確認した問題と証拠
