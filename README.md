@@ -53,6 +53,23 @@ scripts/monitor.py    # 測定値をコンソールへ
 動作中のファームウェアに BOOTSEL への再起動を要求し、応答しない場合は BOOTSEL
 ボタンを押しながら差し直すよう案内します。
 
+#### ツールチェーンを使いたくない場合（プリビルド UF2）
+
+`v*` タグを push すると GitHub Actions がファームウェアをビルドし、
+`bme280_monitor.uf2` と `SHA256SUMS` を **Release に添付**します
+（[Releases](https://github.com/taakad/pico2-bme280-monitor/releases)）。
+
+書き込みはどちらでもできます。
+
+```sh
+# A. このリポジトリのスクリプトを使う（ファームウェアのビルドは不要、picotool が必要）
+scripts/flash.sh ~/Downloads/bme280_monitor.uf2
+
+# B. ボタン操作だけ
+#    1. BOOTSEL ボタンを押しながら USB 接続（または BOOTSEL 押下中に reset）
+#    2. RPI-RP2 に bme280_monitor.uf2 をドラッグ&ドロップ
+```
+
 ### 3. 測定値を見る
 
 ```sh

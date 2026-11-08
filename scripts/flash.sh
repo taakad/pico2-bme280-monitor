@@ -16,15 +16,20 @@ fi
 
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UF2="${UF2:-$ROOT/firmware/build/bme280_monitor.uf2}"
+# 第 1 引数に UF2 を渡せる（Release からダウンロードしたファイルを直接書き込むため）。
+UF2="${1:-${UF2:-$ROOT/firmware/build/bme280_monitor.uf2}}"
 PICOTOOL="${PICOTOOL:-$HOME/toolchain/picotool-build/picotool}"
+if [ ! -x "$PICOTOOL" ]; then
+    PICOTOOL="$(command -v picotool || true)"
+fi
 
 if [ ! -f "$UF2" ]; then
-    echo "no firmware at $UF2 - run scripts/build.sh first" >&2
+    echo "no firmware at $UF2 - run scripts/build.sh, or pass a UF2 from a Release:" >&2
+    echo "  scripts/flash.sh ~/Downloads/bme280_monitor.uf2" >&2
     exit 1
 fi
-if [ ! -x "$PICOTOOL" ]; then
-    echo "picotool not found at $PICOTOOL - run scripts/setup-toolchain.sh first" >&2
+if [ -z "$PICOTOOL" ] || [ ! -x "$PICOTOOL" ]; then
+    echo "picotool not found - run scripts/setup-toolchain.sh, or set PICOTOOL=/path/to/picotool" >&2
     exit 1
 fi
 
