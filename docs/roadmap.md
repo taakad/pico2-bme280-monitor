@@ -6,10 +6,14 @@
 ## 実装済み
 
 - [x] pico-sdk C++ ファームウェア（補償計算 / I2C ドライバ / 診断）
-- [x] ホスト単体テスト 55 assertions（模擬 BME280、硬件不要）
+- [x] ホスト単体テスト 55 assertions（模擬 BME280、ハードウェア不要）
 - [x] セットアップ・ビルド・テスト・書き込み・監視スクリプト
 - [x] JSON 出力（`scripts/monitor.py --json`）
 - [x] 実機での測定確認（23.7 °C / 1003 hPa / 50 %RH を 2 秒間隔で安定取得）
+- [x] GitHub Actions（push / PR でホストテスト + ファームウェアビルド）
+- [x] `v*` タグで Release に UF2 と SHA256SUMS を添付
+      → ツールチェーンなしでも `scripts/flash.sh <uf2>` かドラッグ&ドロップで書き込み可能
+- [x] 非公開リポジトリへの配布（`scripts/login.sh` + `scripts/publish.sh`）
 
 ## A. 測定条件の設定化
 
