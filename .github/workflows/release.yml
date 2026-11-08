@@ -164,6 +164,9 @@ jobs:
     needs: [meta, firmware, macos, windows]
     runs-on: ubuntu-latest
     steps:
+      # gh release create needs a git context to resolve the repository
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           pattern: "*"
