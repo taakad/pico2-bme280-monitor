@@ -170,13 +170,33 @@ REST API（collector が提供）:
 | PUT | `/api/settings` | 設定をデバイスへ適用 |
 | WS  | `/ws` | `hello` / `sample` / `config` / `status` / `batch` |
 
-### 6. インストーラ（Mac / Windows）— プリセット一式
+### 6. インストーラ（Mac / Windows）— フォーム式セットアップ
 
 このリポジトリ一式（+ ビルド済み UF2）を配る形にしました。インストーラは
 **Node.js・PostgreSQL 17・TimescaleDB・DB スキーマ・npm 依存・UI ビルド**を
 まとめてセットアップします。管理者権限は不要で、すべてユーザーディレクトリ
 （Mac: `~/toolchain`、Windows: `%LOCALAPPDATA%\pico2-bme280`）に収まります。
 再実行可能（既存のものはスキップ）。
+
+#### フォームインストーラ（配布物）
+
+ドラッグ&ドロップ方式はやめ、**設定フォームを入力するだけのインストーラ**にしました。
+
+- **macOS（.dmg）**: DMG に入っている `Setup.app` をダブルクリックするとフォーム
+  （PostgreSQL ホスト/ポート/DB 名/ユーザー/パスワード、HTTP ホスト/ポート、
+  ログイン時自動起動）が表示されます。「インストール」を押すとバンドル一式の
+  展開から `install.sh` の実行まで自動で行い、進捗がログに流れます。
+  （アプリ自体は DMG 内の `bundle.tar.gz` に全ファイルを同梱しています）
+  ※ 配布ビルドは ad-hoc 署名のため、初回は右クリック →「開く」で起動します。
+- **Windows（.msi）**: MSI はアプリ一式を Program Files に展開し、スタートメニューの
+  「Pico2 BME280 Monitor セットアップ」ショートカットがフォーム（WinForms、`setup.ps1`）
+  を起動します。入力値はそのまま `install.ps1` に渡され、自動セットアップされます。
+
+フォームで入力した設定は `config.json`（Node 側）と `scripts/env.sh` / `scripts/env.cmd`
+（スクリプト側）に保存され、以降の起動時に自動的に使われます。
+設定の優先順位は **環境変数 > config.json > 既定値** です。
+
+#### スクリプト直接実行（CLI でも同じ設定を渡せます）
 
 ```sh
 # macOS（install.sh を実行するだけ）
@@ -189,6 +209,24 @@ scripts/install.sh --service    # + launchd 常駐登録（ログイン時に co
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Service  # + ログオン時タスク登録
 ```
+
+設定値は CLI 引数でも渡せます（フォームインストーラも内部でこれを使っています）:
+
+```sh
+scripts/install.sh --service \
+  --pg-host /tmp --pg-port 5433 --pg-database pico_monitor \
+  --pg-user pico --pg-password 'secret' \
+  --http-host 127.0.0.1 --http-port 8787
+```
+
+```powershell
+.\scripts\install.ps1 -Service -PgHost 127.0.0.1 -PgPort 5433 `
+  -PgDatabase pico_monitor -PgUser pico -PgPassword 'secret' `
+  -HttpHost 127.0.0.1 -HttpPort 8787
+```
+
+パスワードを指定すると、DB クラスタ初期化時に superuser パスワードが設定され、
+`pg_hba.conf` が scram-sha-256 認証に切り替わります（未指定なら trust 認証のまま）。
 
 - **macOS**: Node LTS を nodejs.org から、PostgreSQL 17 を Postgres.app の DMG から
   展開。TimescaleDB は cmake があればソースからビルド（無ければ素の PostgreSQL で
@@ -227,7 +265,7 @@ GitHub Actions の **Release** ワークフローが、Windows・macOS 双方の
 | Windows | windows-latest | `.msi`（WiX Toolset 7 + `scripts/build-msi.ps1`）+ SHA256 |
 
 MSI（`installer/product.wxs`）はアプリ一式を Program Files に展開し、
-スタートメニューに「セットアップ」（`install.ps1 -Service` を実行）と
+スタートメニューに「セットアップ」（フォームインストーラ `setup.ps1` を起動）と
 「コレクター起動」のショートカットを作成します。
 
 > **注意**: WiX の MSI リンクは Windows の `msi.dll` が必要なため、
@@ -311,9 +349,11 @@ scripts/             セットアップ / ビルド / テスト / 書き込み /
   install.ps1          Windows インストーラ（-Service でタスクスケジューラ登録）
   package.sh           配布バンドル（zip / DMG）作成
   build-msi.ps1        Windows MSI ビルド（WiX 7。-CompileOnly で構文検証）
-installer/           MSI インストーラ定義
+installer/           インストーラ定義
   product.wxs          WiX v4 スキーマの MSI 定義（Release ワークフローで使用）
-  setup.cmd            インストール後のセットアップ起動用
+  setup.cmd            Windows フォームセットアップの起動用（MSI ショートカットの宛先）
+  macos/Setup.swift    macOS フォームインストーラ（DMG に同梱される Setup.app）
+  windows/setup.ps1    Windows フォームセットアップ（WinForms）
 legacy/              元の MicroPython スクリプト（参考保存、動作しません）
 docs/                追加ドキュメント
   review-findings.md   元の Python 実装で確認した問題と証拠
