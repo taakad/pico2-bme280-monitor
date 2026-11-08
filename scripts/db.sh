@@ -24,9 +24,27 @@ if [ -z "$pgbin" ]; then
     exit 1
 fi
 
-if "$pgbin/pg_isready" -h /tmp -p "$PGPORT" -q; then
+# TimescaleDB must be preloaded before CREATE EXTENSION can run. When the
+# extension is installed under this PostgreSQL copy, make sure the setting
+# is in postgresql.conf and restart the server if we just changed it.
+need_restart=no
+if [ -e "$pgbin/../lib/postgresql/timescaledb.dylib" ] || \
+   [ -e "$pgbin/../lib/postgresql/timescaledb.so" ]; then
+    if ! grep -q "^shared_preload_libraries = 'timescaledb'" "$PGDATA/postgresql.conf"; then
+        sed -i.bak "s/^#*shared_preload_libraries = .*/shared_preload_libraries = 'timescaledb'/" \
+            "$PGDATA/postgresql.conf"
+        rm -f "$PGDATA/postgresql.conf.bak"
+        echo "enabled timescaledb in shared_preload_libraries"
+        if "$pgbin/pg_isready" -h /tmp -p "$PGPORT" -q; then
+            "$pgbin/pg_ctl" -D "$PGDATA" -l "$PGROOT/server.log" -m fast -w restart
+            need_restart=yes
+        fi
+    fi
+fi
+
+if [ "$need_restart" = no ] && "$pgbin/pg_isready" -h /tmp -p "$PGPORT" -q; then
     echo "already running on port $PGPORT"
-else
+elif [ "$need_restart" = no ]; then
     mkdir -p "$PGDATA"
     if [ ! -f "$PGDATA/PG_VERSION" ]; then
         echo "initialising cluster at $PGDATA (superuser: pico, trust auth)"

@@ -42,6 +42,37 @@ CREATE TABLE IF NOT EXISTS measurement (
 CREATE INDEX IF NOT EXISTS measurement_device_ts
     ON measurement (device_id, ts DESC);
 
+-- TimescaleDB: partition measurement into per-day chunks. The extension is
+-- only used when the server actually has it installed (and preloaded via
+-- shared_preload_libraries, see scripts/db.sh); plain PostgreSQL still works.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb') THEN
+        CREATE EXTENSION IF NOT EXISTS timescaledb;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')
+       AND NOT EXISTS (SELECT 1 FROM _timescaledb_catalog.hypertable
+                       WHERE schema_name = 'public' AND table_name = 'measurement')
+    THEN
+        -- Every unique constraint on a hypertable must include the
+        -- partition column, so swap the id-only primary key for (id, ts).
+        IF EXISTS (SELECT 1 FROM pg_constraint
+                    WHERE conname = 'measurement_pkey'
+                      AND conrelid = 'measurement'::regclass) THEN
+            ALTER TABLE measurement DROP CONSTRAINT measurement_pkey;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                        WHERE conname = 'measurement_id_ts_key'
+                          AND conrelid = 'measurement'::regclass) THEN
+            ALTER TABLE measurement ADD CONSTRAINT measurement_id_ts_key
+                UNIQUE (id, ts);
+        END IF;
+        PERFORM create_hypertable('measurement', 'ts',
+            chunk_time_interval => INTERVAL '1 day',
+            migrate_data => true);
+    END IF;
+END $$;
+
 -- Last-known firmware settings per device (mirrors the firmware `get` reply).
 CREATE TABLE IF NOT EXISTS device_setting (
     device_id     INT PRIMARY KEY REFERENCES device(id) ON DELETE CASCADE,

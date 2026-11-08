@@ -28,7 +28,7 @@ T=  23.77 C  P=  1002.94 hPa  RH= 50.99 %  |  dew= 13.03 C  AH=10.93 g/m3  (adc 
 | 最速測定間隔 | 5 ms（実測 約 173 サンプル/秒。BME280 の物理上限 約 190 Hz が頭打ち） |
 | ホストテスト | 124 assertions, 0 failures（ハードウェア不要） |
 | UI | Angular 22（ダッシュボード / 測定設定の 2 画面、参数別の個別グラフ） |
-| 履歴 | PostgreSQL（時系列 + 1 時間ロールアップ） |
+| 履歴 | PostgreSQL + TimescaleDB（`measurement` は 1 日チャンクのハイパーテーブル、1 時間ロールアップ） |
 
 ---
 
@@ -124,8 +124,10 @@ Angular の 2 画面（ダッシュボード / 測定設定）で確認できま
 ダッシュボードは 5 参数のゲージに加え、**参数ごとに個別の推移グラフ**を表示します
 （°C / hPa / %RH を同一軸に重ねると縦軸が読めないため、グラフごとに目盛りを持ちます）。
 
-前提: Node.js 20+ と PostgreSQL。PostgreSQL は管理者権限なしで
+前提: Node.js 20+ と PostgreSQL（+ TimescaleDB）。PostgreSQL は管理者権限なしで
 `~/toolchain/pgsql` に Postgres.app から展開して 5433 で起動しています。
+TimescaleDB は同じツリーに対してソースからビルドした 2.31.0 を
+`shared_preload_libraries` で読み込みます（`scripts/db.sh` が自動で設定）。
 
 ```sh
 # 一键: DB 起動（無ければ initdb）→ スキーマ適用 → UI ビルド → collector 起動
@@ -150,7 +152,7 @@ cd ui && npm install && npm start     # http://localhost:4200
 
 - **ダッシュボード** `/dashboard`：5 パラメータ（温度・気圧・相対湿度・露点・絶対湿度）を
   SVG のアークゲージで現在値表示し、WebSocket でリアルタイム更新。期間切り替え
-  （1 時間 / 24 時間 / 7 日 / 30 日）で PostgreSQL の履歴を折れ線グラフ表示。
+  （1 時間 / 24 時間 / 7 日 / 30 日）で PostgreSQL（TimescaleDB）の履歴を折れ線グラフ表示。
 - **測定設定** `/settings`：A の設定項目をフォームで編集し、`PUT /api/settings`
   経由でファームウェアへ反映。値はサーバー側とデバイス側の両方で検証されます。
 
@@ -393,6 +395,29 @@ macOS ではマスストレージボリュームへの UF2 コピー（`cp`、`l
   ヘッドレス Chrome 20 チェック（5 枚のグラフ・異なる 5 種の縦軸・設定画面の
   最短 5 ms / 190 Hz ヒントを確認）。すべて全通過。
 
+### PostgreSQL → TimescaleDB
+
+履歴テーブルを TimescaleDB の**ハイパーテーブル**に移行しました（2.31.0）。
+
+- **ビルド**：管理者権限なしの Postgres.app コピー（`~/toolchain/pgsql/17`）は
+  サーバーヘッダ同梱なので、TimescaleDB を同じツリーへソースからビルドして
+  `make install` できる（`-DUSE_OPENSSL=0`。ローカル trust 接続には TLS 不要）
+- **有効化**：`shared_preload_libraries = 'timescaledb'` を `postgresql.conf` に設定して
+  再起動。`scripts/db.sh` が拡張のインストール検出 → conf 設定 → 自動再起動まで行う
+- **移行**：`measurement` を `ts` を分区キーとする 1 日チャンクのハイパーテーブル化。
+  ハイパーテーブルの一意制約は分区キーを含む必要があるので、
+  `PRIMARY KEY (id)` を `UNIQUE (id, ts)` に置き換え。既存 11 万行は
+  `migrate_data => true` でチャンクへ移動
+- **冪等性**：`db/schema.sql` の DO ブロックが「拡張が利用可能なら作成 →
+  まだハイパーテーブルでなければ変換」を担うため、生 PostgreSQL 環境では
+  そのまま素のテーブルとして動作し、Timescale 環境では自動で変換される。
+  再実行しても安全
+- **アプリケーション側の変更はゼロ**：INSERT・系列クエリ・1 時間ロールアップ
+  （`measurement_hourly`）はそのままハイパーテーブル上で動作。将来
+  Timescale の連続集合物化（continuous aggregates）でロールアップを置き換えることもできる
+- **CI**：collector ジョブが `timescale/timescaledb:latest-pg17` サービスコンテナで
+  スキーマ適用 → DB テストを実行するようにした（従来は DB 無しでスキップしていた）
+
 ---
 
 ## 今後の展望
@@ -416,7 +441,7 @@ macOS ではマスストレージボリュームへの UF2 コピー（`cp`、`l
 ```mermaid
 graph LR
     P[Pico 2 + BME280] -->|USB CDC JSON Lines| C[collector<br/>Node.js]
-    C -->|INSERT + 1時間ロールアップ| D[(PostgreSQL)]
+    C -->|INSERT + 1時間ロールアップ| D[(PostgreSQL<br/>TimescaleDB)]
     C -->|REST /api/*| U[Angular UI]
     C -->|WebSocket /ws| U
     C -->|set k=v| P
@@ -428,7 +453,8 @@ graph LR
 - **設定**：フォーム → `PUT /api/settings` → シリアル `set` → デバイス検証 →
   WebSocket `config` で全クライアントへ反映
 - **DB スキーマ**：`db/schema.sql`（device / measurement / device_setting /
-  measurement_hourly）。measurement は `(device_id, ts DESC)` にインデックス、
+  measurement_hourly）。measurement は TimescaleDB のハイパーテーブル
+  （`ts` で 1 日チャンク分割、`(device_id, ts DESC)` にインデックス）、
   長期窓は 1 時間ロールアップでスキャン量を抑制
 
 ### C. インストールしてサービスとして起動すると、Pico を差すだけで測定できる環境 — 未実装

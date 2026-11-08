@@ -47,7 +47,14 @@ test('measurement round trip and hourly rollup', { skip: !available }, async (t)
     assert.ok(bucketed.points[0].n >= 1);
     assert.ok(typeof bucketed.points[0].temperature_c_min === 'number');
 
-    const hourly = await db.series({ deviceId: device.id, from: base, to: new Date(), bucket: '1h' });
+    // The rollup row is keyed by the top of the hour, which can sit just
+    // before `base` depending on when the test runs, so widen the range.
+    const hourly = await db.series({
+        deviceId: device.id,
+        from: new Date(base.getTime() - 3600 * 1000),
+        to: new Date(),
+        bucket: '1h',
+    });
     assert.ok(hourly.points.length >= 1);
 
     const settings = await db.saveSettings(device.id, {

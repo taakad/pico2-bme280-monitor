@@ -9,6 +9,9 @@
 - [x] ホスト単体テスト 124 assertions（模擬 BME280、ハードウェア不要）
 - [x] 実行中の測定設定（シリアル `set/get`、検証付き、JSON 出力モード）
 - [x] collector サービス（シリアル→PostgreSQL、REST + WebSocket、UI 配信）
+- [x] 履歴の TimescaleDB 化（`measurement` を 1 日チャンクのハイパーテーブルに。
+      `db/schema.sql` が冪等に変換、`scripts/db.sh` が preload 設定と再起動を自動化、
+      CI は `timescale/timescaledb:latest-pg17` コンテナで DB テストを実行）
 - [x] Angular ダッシュボード（SVG ゲージ + 履歴グラフ）と測定設定画面
 - [x] セットアップ・ビルド・テスト・書き込み・監視スクリプト
 - [x] JSON 出力（`scripts/monitor.py --json`）

@@ -37,6 +37,28 @@ jobs:
   collector:
     name: Collector tests
     runs-on: ubuntu-latest
+    services:
+      # The db-backed test runs against a real TimescaleDB instance, so the
+      # hypertable conversion in db/schema.sql is exercised on every push.
+      postgres:
+        image: timescale/timescaledb:latest-pg17
+        env:
+          POSTGRES_USER: pico
+          POSTGRES_DB: pico_monitor
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pico"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGDATABASE: pico_monitor
+      PGUSER: pico
+      PGPASSWORD: ''
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,11 +66,11 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: server/package-lock.json
+      - name: Apply schema
+        run: psql -v ON_ERROR_STOP=1 -f db/schema.sql
       - name: Install
         working-directory: server
         run: npm ci
-      # The database-backed test skips itself when Postgres is unreachable, so
-      # this runs the pure logic (protocol parsing, settings validation).
       - name: Test
         working-directory: server
         run: npm test
