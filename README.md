@@ -124,8 +124,9 @@ Angular の 2 画面（ダッシュボード / 測定設定）で確認できま
 ダッシュボードは 5 参数のゲージに加え、**参数ごとに個別の推移グラフ**を表示します
 （°C / hPa / %RH を同一軸に重ねると縦軸が読めないため、グラフごとに目盛りを持ちます）。
 
-前提: Node.js 20+ と PostgreSQL（+ TimescaleDB）。PostgreSQL は管理者権限なしで
-`~/toolchain/pgsql` に Postgres.app から展開して 5433 で起動しています。
+前提: Node.js 24.15+ と PostgreSQL（+ TimescaleDB）。これらをまとめて用意するのが
+次の「インストーラ」セクション。手元で組み上げる場合は Node.js を用意し、PostgreSQL は
+管理者権限なしで `~/toolchain/pgsql` に Postgres.app から展開して 5433 で起動します。
 TimescaleDB は同じツリーに対してソースからビルドした 2.31.0 を
 `shared_preload_libraries` で読み込みます（`scripts/db.sh` が自動で設定）。
 
@@ -152,7 +153,9 @@ cd ui && npm install && npm start     # http://localhost:4200
 
 - **ダッシュボード** `/dashboard`：5 パラメータ（温度・気圧・相対湿度・露点・絶対湿度）を
   SVG のアークゲージで現在値表示し、WebSocket でリアルタイム更新。期間切り替え
-  （1 時間 / 24 時間 / 7 日 / 30 日）で PostgreSQL（TimescaleDB）の履歴を折れ線グラフ表示。
+  （**1 分 / 5 分 / 30 分** / 1 時間 / 24 時間 / 7 日 / 30 日）で PostgreSQL（TimescaleDB）
+  の履歴を折れ線グラフ表示。短い期間ほど細かい bucket（5 秒 / 15 秒 / 1 分 …）を使い、
+  10 分以内のグラフは目盛りが `HH:MM:SS` になる。
 - **測定設定** `/settings`：A の設定項目をフォームで編集し、`PUT /api/settings`
   経由でファームウェアへ反映。値はサーバー側とデバイス側の両方で検証されます。
 
@@ -162,10 +165,46 @@ REST API（collector が提供）:
 |----------|------|------|
 | GET | `/api/health` | collector とシリアルの状態 |
 | GET | `/api/latest` | 最新サンプル |
-| GET | `/api/measurements?from&to&bucket` | 履歴（bucket: raw/1m/5m/…/1d） |
+| GET | `/api/measurements?from&to&bucket` | 履歴（bucket: raw/5s/15s/1m/5m/…/1d） |
 | GET | `/api/settings` | 現在の設定（デバイス優先、無ければ DB） |
 | PUT | `/api/settings` | 設定をデバイスへ適用 |
 | WS  | `/ws` | `hello` / `sample` / `config` / `status` / `batch` |
+
+### 6. インストーラ（Mac / Windows）— プリセット一式
+
+このリポジトリ一式（+ ビルド済み UF2）を配る形にしました。インストーラは
+**Node.js・PostgreSQL 17・TimescaleDB・DB スキーマ・npm 依存・UI ビルド**を
+まとめてセットアップします。管理者権限は不要で、すべてユーザーディレクトリ
+（Mac: `~/toolchain`、Windows: `%LOCALAPPDATA%\pico2-bme280`）に収まります。
+再実行可能（既存のものはスキップ）。
+
+```sh
+# macOS（install.sh を実行するだけ）
+scripts/install.sh              # Node / PostgreSQL / TimescaleDB / スキーマ / 依存
+scripts/install.sh --service    # + launchd 常駐登録（ログイン時に collector 自動起動）
+```
+
+```powershell
+# Windows 10/11 x64（PowerShell）
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Service  # + ログオン時タスク登録
+```
+
+- **macOS**: Node LTS を nodejs.org から、PostgreSQL 17 を Postgres.app の DMG から
+  展開。TimescaleDB は cmake があればソースからビルド（無ければ素の PostgreSQL で
+  動作、`db/schema.sql` が自動で適応）。
+- **Windows**: Node zip・EnterpriseDB の PostgreSQL バイナリ zip・TimescaleDB の
+  公式 Windows バイナリ（2.31.0）を展開して拡張ファイルを配置。
+- **サービス登録後**は、PC 起動 → Pico を挿すだけで測定が開始し、
+  ブラウザで `http://127.0.0.1:8787` を開くだけでダッシュボードが見られます。
+
+配布バンドルの作成（ソース + プリビルド UF2 + インストーラ + DMG）:
+
+```sh
+scripts/package.sh
+# → dist/pico2-bme280-monitor-<tag>.zip（Mac/Windows 共通）
+# → dist/pico2-bme280-monitor-<tag>.dmg（macOS ディスクイメージ）
+```
 
 ---
 
@@ -232,6 +271,9 @@ ui/                  Angular 22 アプリ
   src/app/gauge/       アークゲージ（依存なしの手描き SVG）
   src/app/history/     折れ線 + min/max 帯の手描き SVG チャート
 scripts/             セットアップ / ビルド / テスト / 書き込み / 監視 / 設定
+  install.sh           macOS インストーラ（--service で launchd 常駐化）
+  install.ps1          Windows インストーラ（-Service でタスクスケジューラ登録）
+  package.sh           配布バンドル（zip / DMG）作成
 legacy/              元の MicroPython スクリプト（参考保存、動作しません）
 docs/                追加ドキュメント
   review-findings.md   元の Python 実装で確認した問題と証拠
@@ -457,32 +499,36 @@ graph LR
   （`ts` で 1 日チャンク分割、`(device_id, ts DESC)` にインデックス）、
   長期窓は 1 時間ロールアップでスキャン量を抑制
 
-### C. インストールしてサービスとして起動すると、Pico を差すだけで測定できる環境 — 未実装
+### C. インストールしてサービスとして起動すると、Pico を差すだけで測定できる環境 — 実装済み
 
-collector はすでに「起動中に挿すと自動検出・自動開始・自動再接続」までできています
-（`server/src/serial.js` の検出ループ）。残りは OS への常駐登録です。
+collector は「起動中に挿すと自動検出・自動開始・自動再接続」に対応しています
+（`server/src/serial.js` の検出ループ）。その上に常駐登録とインストーラを載せました。
 
-**方針**
+**実装内容**
 
-1. **常駐サービス**
-   - Linux: `udev` ルール（`ATTRS{idVendor}=="2e8a"`）で `/dev/bme280` のような
-     安定シンボリックリンクを作り、`systemd` サービスで collector を起動
-   - macOS: `launchd` の `KeepAlive` + `launchctl bootstrap`（`scripts/install-service.sh` 想定）
-   - Windows: `serialport` のライブラリ側検出を予定
-2. **安定したデバイス名**：`/dev/cu.usbmodem1101` のような番号は再起動で変わるため、
-   ベンダ ID で識別したポートを collector 側で追跡する（現状は接続のたびに再検出）
-3. **HTTP サーバー**：collector が UI を同梱配信する形は実装済み
-   （`http://localhost:8787/`）。「挿す → ブラウザで見る」はサービス登録だけで成立する
-4. **履歴の保存**：PostgreSQL 保存は実装済み。CSV エクスポートは未実装
-5. **設定の永続化**：ファームウェアのフラッシュ保存（A の残課題）をやると、
-   サービス無しでも「挿すだけ」の挙動が素の基板で再現できる
+1. **インストーラ**（`scripts/install.sh` / `scripts/install.ps1`）
+   - Node.js LTS・PostgreSQL 17・TimescaleDB・DB スキーマ・npm 依存・UI ビルドを
+     一括セットアップ。管理者権限不要、ユーザーディレクトリのみ使用、再実行可能
+2. **常駐サービス**
+   - macOS: `install.sh --service` が `launchd` の `KeepAlive` エージェント
+     （`com.pico2.bme280.collector`）を登録。ログイン時に自動起動し、落ちたら再起動
+   - Windows: `install.ps1 -Service` がタスクスケジューラにログオン時タスク
+     （`Pico2Bme280Collector`）を登録。`collector.cmd` が PostgreSQL を `pg_ctl` で
+     起動してから collector を実行（DB → collector の起動順序を処理）
+   - Linux: `udev` ルール + `systemd` は未実装（将来の拡張）
+3. **HTTP サーバー**：collector が UI を同梱配信（`http://localhost:8787/`）。
+   サービス登録後は「Pico を挿す → ブラウザで見る」が成立する
+4. **配布バンドル**：`scripts/package.sh` でソース一式 + プリビルド UF2 + インストーラを
+   zip / DMG に固める
 
-**既知の論点**
+**残課題**
 
+- **CSV エクスポート**：未実装
+- **設定の永続化**：ファームウェアのフラッシュ保存（A の残課題）をやると、
+  サービス無しでも「挿すだけ」の挙動が素の基板で再現できる
+- **Linux 対応**：`udev` + `systemd` のサービス定義は未提供
 - pico-sdk の CDC は USB シリアルを 1 本しか提供しないため、設定コマンドと
   測定値が同じチャネルを共有する。テキストプロトコルの行単位多重化で解決済み
-- macOS の `launchd` からのシリアルアクセスの権限設定は未検証
-- PostgreSQL を常駐させる場合の起動順序（DB → collector）の管理
 
 ---
 

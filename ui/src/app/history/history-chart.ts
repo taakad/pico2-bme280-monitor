@@ -197,7 +197,13 @@ export class HistoryChartComponent {
     if (spanMs > 3 * 24 * 3600 * 1000) {
       return `${d.getMonth() + 1}/${d.getDate()}`;
     }
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    // Windows of a few minutes need seconds on the axis, otherwise every
+    // tick label is the same minute.
+    if (spanMs <= 10 * 60 * 1000) {
+      return `${hhmm}:${String(d.getSeconds()).padStart(2, '0')}`;
+    }
+    return hhmm;
   }
 
   // Single-metric charts use the metric name + unit as the heading, which is

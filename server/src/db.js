@@ -140,6 +140,8 @@ export async function listDevices() {
 
 const BUCKETS = {
     raw: null,
+    '5s': 5,
+    '15s': 15,
     '1m': 60,
     '5m': 300,
     '15m': 900,

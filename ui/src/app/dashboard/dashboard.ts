@@ -5,7 +5,7 @@ import { HistoryChartComponent, Metric } from '../history/history-chart';
 
 interface RangeOption {
   label: string;
-  hours: number;
+  minutes: number;
   bucket: string;
 }
 
@@ -26,13 +26,18 @@ export class DashboardComponent implements OnInit, OnDestroy {
   readonly config = computed(() => this.api.config());
   readonly wsOpen = computed(() => this.api.wsOpen());
 
+  // Short windows use buckets fine enough to keep a readable number of points:
+  // 1 分 at 1m buckets would be a single dot.
   readonly ranges: RangeOption[] = [
-    { label: '1 時間', hours: 1, bucket: '1m' },
-    { label: '24 時間', hours: 24, bucket: '5m' },
-    { label: '7 日', hours: 24 * 7, bucket: '1h' },
-    { label: '30 日', hours: 24 * 30, bucket: '6h' },
+    { label: '1 分', minutes: 1, bucket: '5s' },
+    { label: '5 分', minutes: 5, bucket: '15s' },
+    { label: '30 分', minutes: 30, bucket: '1m' },
+    { label: '1 時間', minutes: 60, bucket: '1m' },
+    { label: '24 時間', minutes: 24 * 60, bucket: '5m' },
+    { label: '7 日', minutes: 24 * 60 * 7, bucket: '1h' },
+    { label: '30 日', minutes: 24 * 60 * 30, bucket: '6h' },
   ];
-  readonly range = signal<RangeOption>(this.ranges[1]);
+  readonly range = signal<RangeOption>(this.ranges[4]);
 
   // Bumped on a timer so the open charts pick up new buckets without a reload.
   readonly refreshKey = signal(0);
@@ -123,7 +128,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   rangeStart(option: RangeOption): string {
-    return new Date(Date.now() - option.hours * 3600 * 1000).toISOString();
+    return new Date(Date.now() - option.minutes * 60 * 1000).toISOString();
   }
 
   rangeEnd(): string {
