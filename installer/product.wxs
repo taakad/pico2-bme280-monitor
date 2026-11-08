@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Pico2 BME280 Monitor の MSI インストーラー定義(WiX v4 スキーマ / WiX Toolset 7)。
+
+  ビルドは scripts/build-msi.ps1 を使用すること:
+    pwsh scripts/build-msi.ps1                # 完全ビルド(Windows 必須)
+    pwsh scripts/build-msi.ps1 -CompileOnly   # 構文検証のみ(macOS/Linux でも可)
+
+  ビルド時に渡す事前処理変数:
+    -d StageDir=...        ステージング済みバンドルディレクトリ
+    -d ProductVersion=...  MSI バージョン(major.minor.build 形式)
+    -d FolderName=...      Program Files 内のフォルダー名(Windows のみ。
+                           macOS/Linux の WiX は Directory/@Name を弾くため
+                           検証ビルドでは省略する)
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Pico2 BME280 Monitor"
+           Manufacturer="taakad"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="DD0A44AB-1B5D-4636-8CE0-492C433FD1B8"
+           Language="1041">
+    <MajorUpgrade DowngradeErrorMessage="Pico2 BME280 Monitor の新しいバージョンが既にインストールされています。" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <?ifdef FolderName?>
+      <Directory Id="INSTALLFOLDER" Name="$(var.FolderName)" />
+      <?else?>
+      <Directory Id="INSTALLFOLDER" />
+      <?endif?>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <!-- アプリケーション一式(scripts/build-msi.ps1 が dist/msi-stage にステージング) -->
+    <ComponentGroup Directory="INSTALLFOLDER" Id="AppFiles">
+      <Files Include="$(var.StageDir)/**" />
+    </ComponentGroup>
+
+    <!-- スタートメニューショートカット -->
+    <Component Id="Shortcuts" Directory="ProgramMenuFolder">
+      <Shortcut Id="SetupShortcut"
+                Name="Pico2 BME280 Monitor セットアップ"
+                Target="[INSTALLFOLDER]setup.cmd"
+                WorkingDirectory="INSTALLFOLDER" />
+      <Shortcut Id="CollectorShortcut"
+                Name="Pico2 BME280 Monitor コレクター起動"
+                Target="[INSTALLFOLDER]scripts\collector.cmd"
+                WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="CleanMenuFolder" On="uninstall" />
+      <RegistryValue Root="HKCU"
+                     Key="Software\taakad\Pico2Bme280Monitor"
+                     Name="installed"
+                     Type="integer"
+                     Value="1"
+                     KeyPath="yes" />
+    </Component>
+
+    <Feature Id="Main" Title="Pico2 BME280 Monitor" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="Shortcuts" />
+    </Feature>
+  </Package>
+</Wix>

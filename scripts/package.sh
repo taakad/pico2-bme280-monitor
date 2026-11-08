@@ -12,7 +12,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
-version="$(git describe --tags --always 2>/dev/null || echo dev)"
+version="${VERSION:-$(git describe --tags --always 2>/dev/null || echo dev)}"
 name="pico2-bme280-monitor-$version"
 stage="dist/$name"
 rm -rf "$stage" "dist/$name.zip" "dist/$name.dmg"

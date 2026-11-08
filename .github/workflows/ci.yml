@@ -91,3 +91,16 @@ jobs:
       - name: Build
         working-directory: ui
         run: npm run build
+
+  installer:
+    name: Installer (MSI) syntax check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install WiX Toolset
+        run: dotnet tool install -g Wix
+      - name: Compile-check product.wxs
+        shell: pwsh
+        run: |
+          $env:PATH += ";$env:USERPROFILE\.dotnet\tools"
+          ./scripts/build-msi.ps1 -Version 0.0.0 -CompileOnly

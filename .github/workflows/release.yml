@@ -1,19 +1,70 @@
 name: Release
 
-# v* タグを push すると、ファームウェアをビルドして UF2 を GitHub Release に添付します。
-# ツールチェーンを持っていない人でも、Release から UF2 をダウンロードして
-# BOOTSEL + ドラッグ&ドロップ (または scripts/flash.sh) で書き込めるようにするためです。
+# 配布物ビルド:
+#   1) v* タグの push(例 v1.4.0 / v1.4.0-beta1。「-」を含むタグは prerelease 扱い)
+#   2) Actions タブからの手動実行(workflow_dispatch):任意のタイミングで
+#      release / pre-release のどちらでも Windows(.msi) + macOS(.dmg) を出力できる。
+#
+# 生成物: bme280_monitor.uf2 / SHA256SUMS / zip バンドル / .dmg(macOS) / .msi(Windows)
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "バージョン(例 v1.4.0)。空ならブランチ HEAD から自動採番"
+        required: false
+        default: ""
+      prerelease:
+        description: "pre-release として公開する"
+        type: boolean
+        required: false
+        default: true
 
 permissions:
   contents: write
 
+env:
+  DOTNET_NOLOGO: "true"
+
 jobs:
+  # --- 共通: バージョン/タグ決定 -------------------------------------------
+  meta:
+    name: Decide version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+      version: ${{ steps.pick.outputs.version }}
+      prerelease: ${{ steps.pick.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.version }}"
+            if [ -z "$tag" ]; then
+              # 手動実行で未指定: 最新タグの patch を上げて自動採番
+              base="$(git describe --tags --abbrev=0 | sed 's/^v//')"
+              major="${base%%.*}"; rest="${base#*.}"; minor="${rest%%.*}"; patch="${rest##*.}"
+              tag="v$major.$minor.$((patch+1))-dev$(date -u +%Y%m%d%H%M)"
+            fi
+            pre="${{ inputs.prerelease }}"
+          else
+            tag="${{ github.ref_name }}"
+            case "$tag" in *-*) pre=true ;; *) pre=false ;; esac
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag prerelease=$pre"
+
+  # --- ファームウェア(UF2) --------------------------------------------------
   firmware:
-    name: Build firmware and publish release
+    name: Firmware (UF2)
+    needs: meta
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,23 +89,98 @@ jobs:
           sha256sum bme280_monitor.uf2 > SHA256SUMS
           cat SHA256SUMS
 
-      - name: Create release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            firmware/build/bme280_monitor.uf2
+            firmware/build/SHA256SUMS
+
+  # --- macOS: .dmg + zip -----------------------------------------------------
+  macos:
+    name: macOS (.dmg)
+    needs: [meta, firmware]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download prebuilt UF2
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: firmware/build
+
+      - name: Build zip + dmg
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: ./scripts/package.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            dist/*.dmg
+            dist/*.zip
+
+  # --- Windows: .msi ----------------------------------------------------------
+  windows:
+    name: Windows (.msi)
+    needs: [meta, firmware]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download prebuilt UF2
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: firmware/build
+
+      - name: Install WiX Toolset
+        run: dotnet tool install -g Wix
+
+      - name: Build msi
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          $env:PATH += ";$env:USERPROFILE\.dotnet\tools"
+          ./scripts/build-msi.ps1 -Version $env:VERSION
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/*.msi
+            dist/*.msi.sha256
+
+  # --- 公開 -------------------------------------------------------------------
+  release:
+    name: Publish release
+    needs: [meta, firmware, macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*"
+          merge-multiple: true
+
+      - name: Create / update release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
         run: |
-          # Idempotent: if the release already exists (e.g. created by hand
-          # before the tag's workflow ran), upload the assets to it instead
-          # of failing on a duplicate tag.
+          args=( --title "$TAG" --generate-notes )
+          if [ "$PRERELEASE" = "true" ]; then args+=( --prerelease ); fi
+          # Idempotent: 既存リリースには差し替えアップロードする
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" \
-              firmware/build/bme280_monitor.uf2 \
-              firmware/build/SHA256SUMS \
-              --clobber
+            gh release upload "$TAG" bme280_monitor.uf2 SHA256SUMS *.dmg *.zip *.msi *.msi.sha256 --clobber
           else
             gh release create "$TAG" \
-              firmware/build/bme280_monitor.uf2 \
-              firmware/build/SHA256SUMS \
-              --title "$TAG" \
-              --generate-notes
+              bme280_monitor.uf2 SHA256SUMS *.dmg *.zip *.msi *.msi.sha256 "${args[@]}"
           fi
