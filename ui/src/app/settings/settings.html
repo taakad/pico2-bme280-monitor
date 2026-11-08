@@ -1,0 +1,107 @@
+<section class="head">
+  <h2>測定設定</h2>
+  <p class="hint">
+    変更は USB シリアル経由でファームウェアに送られ、次のサンプルから反映されます。
+    値はデバイス側でも検証されるため、不正な値は拒否されます。
+  </p>
+  <span class="source">読み出し元: {{ source() }} @if (dirty()) { ・ 未保存の変更あり }</span>
+</section>
+
+@if (!connected()) {
+  <p class="warn">
+    Pico が接続されていないため設定を適用できません。接続すると自動的に再接続します。
+  </p>
+}
+
+<form class="grid" (ngSubmit)="save()">
+  <fieldset>
+    <legend>サンプリング</legend>
+
+    <label>
+      <span>測定間隔</span>
+      <div class="row">
+        <input type="number" name="interval" [ngModel]="form().interval_ms"
+               (ngModelChange)="patch('interval_ms', +$event)"
+               [min]="limits.intervalMin" [max]="limits.intervalMax" step="100" required />
+        <span class="unit">ms</span>
+      </div>
+      <div class="presets">
+        @for (p of intervalPresets; track p.value) {
+          <button type="button" [class.active]="form().interval_ms === p.value"
+                  (click)="patch('interval_ms', p.value)">{{ p.label }}</button>
+        }
+      </div>
+      <small>{{ rowsPerDay() }} 行/日 を PostgreSQL に保存</small>
+    </label>
+
+    <label>
+      <span>移動平均（生の ADC 値）</span>
+      <select name="average" [ngModel]="form().average" (ngModelChange)="patch('average', +$event)">
+        @for (o of averageOptions; track o.value) {
+          <option [ngValue]="o.value">{{ o.label }}</option>
+        }
+      </select>
+      <small>補償計算の前に平均するため、丸め誤差が増えません</small>
+    </label>
+
+    <label>
+      <span>出力の小数点以下桁数</span>
+      <div class="row">
+        <input type="number" name="decimals" [ngModel]="form().decimals"
+               (ngModelChange)="patch('decimals', +$event)"
+               [min]="0" [max]="limits.decimalsMax" step="1" required />
+        <span class="unit">桁</span>
+      </div>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>BME280 レジスタ</legend>
+
+    @for (ch of channels; track ch.key) {
+      <label>
+        <span>{{ ch.name }} オーバーサンプリング</span>
+        <div class="segmented">
+          @for (o of osrOptions; track o.value) {
+            <button type="button" [class.active]="form()[ch.key] === o.value"
+                    (click)="patch(ch.key, o.value)">{{ o.label }}</button>
+          }
+        </div>
+      </label>
+    }
+
+    <label>
+      <span>IIR フィルタ</span>
+      <div class="segmented">
+        @for (o of filterOptions; track o.value) {
+          <button type="button" [class.active]="form().filter === o.value"
+                  (click)="patch('filter', o.value)">{{ o.label }}</button>
+        }
+      </div>
+      <small>ノイズ低減と応答の遅れのトレードオフ</small>
+    </label>
+
+    <label>
+      <span>動作モード</span>
+      <div class="segmented">
+        @for (o of modeOptions; track o.value) {
+          <button type="button" [class.active]="form().mode === o.value"
+                  (click)="patch('mode', o.value)">{{ o.label }}</button>
+        }
+      </div>
+      <small>forced は測定間隔ごとに 1 回だけ変換します（省電力）</small>
+    </label>
+  </fieldset>
+
+  <div class="actions">
+    <button type="submit" [disabled]="saving() || !connected() || !dirty()">
+      {{ saving() ? '適用中…' : 'デバイスに適用' }}
+    </button>
+    <button type="button" (click)="refresh()">デバイスから読み直す</button>
+    <button type="button" class="ghost" (click)="resetDefaults()">既定値に戻す</button>
+  </div>
+
+  @if (message(); as m) {
+    <p class="msg" [class]="m.kind">{{ m.text }}</p>
+  }
+</form>

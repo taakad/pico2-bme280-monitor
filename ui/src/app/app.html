@@ -1,0 +1,17 @@
+<header class="bar">
+  <div class="brand">
+    <span class="dot" [class.on]="connected()"></span>
+    <strong>Pico 2 / BME280</strong>
+    @if (live(); as s) {
+      <span class="now">{{ s.temperature_c }} °C ・ {{ s.pressure_hpa }} hPa ・ {{ s.humidity_rh }} %RH</span>
+    }
+  </div>
+  <nav>
+    <a routerLink="/dashboard" routerLinkActive="active">ダッシュボード</a>
+    <a routerLink="/settings" routerLinkActive="active">測定設定</a>
+  </nav>
+</header>
+
+<main>
+  <router-outlet />
+</main>

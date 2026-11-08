@@ -6,7 +6,10 @@
 ## 実装済み
 
 - [x] pico-sdk C++ ファームウェア（補償計算 / I2C ドライバ / 診断）
-- [x] ホスト単体テスト 55 assertions（模擬 BME280、ハードウェア不要）
+- [x] ホスト単体テスト 120 assertions（模擬 BME280、ハードウェア不要）
+- [x] 実行中の測定設定（シリアル `set/get`、検証付き、JSON 出力モード）
+- [x] collector サービス（シリアル→PostgreSQL、REST + WebSocket、UI 配信）
+- [x] Angular ダッシュボード（SVG ゲージ + 履歴グラフ）と測定設定画面
 - [x] セットアップ・ビルド・テスト・書き込み・監視スクリプト
 - [x] JSON 出力（`scripts/monitor.py --json`）
 - [x] 実機での測定確認（23.7 °C / 1003 hPa / 50 %RH を 2 秒間隔で安定取得）
@@ -15,9 +18,13 @@
       → ツールチェーンなしでも `scripts/flash.sh <uf2>` かドラッグ&ドロップで書き込み可能
 - [x] 非公開リポジトリへの配布（`scripts/login.sh` + `scripts/publish.sh`）
 
-## A. 測定条件の設定化
+## A. 測定条件の設定化 — ✅ 実装済み
 
-**現状**：サンプル間隔・出力桁数・オーバーサンプリングはすべてソースの定数。
+> 実装: `firmware/src/{config,command,sampler}.*` と
+> `scripts/config.py`。実機で 45 チェック通過（間隔・桁数・平均窓・OSR/フィルタ・
+> 10 種の不正値拒否・正常な測定値）。設定のフラッシュ永続化のみ未実装。
+
+**当時**：サンプル間隔・出力桁数・オーバーサンプリングはすべてソースの定数。
 
 ```cpp
 constexpr uint32_t kSampleIntervalMs = 2000;   // main.cpp
@@ -64,9 +71,14 @@ constexpr uint8_t  OSR_X1 = 0b001;             // bme280.hpp
   テキストプロトコルで多重化するか、ベンダーインターフェースを別途使うかの選択が必要。
   前者が単純で、`T=` で始まる行は測定値、`set `/`get ` はコマンドと判別できる。
 
-## B. Angular リアルタイム UI
+## B. Angular リアルタイム UI — ✅ 実装済み
 
-**構成**
+> 実装: `ui/`（Angular 22、`/dashboard` と `/settings` の 2 画面）と
+> `server/`（collector: serialport + pg + express + ws）。`db/schema.sql` に
+> device / measurement / device_setting / measurement_hourly。ヘッドレス Chrome で
+> 16 チェック通過（5 ゲージ描画・リアルタイム更新・期間切替・設定適用の反映）。
+
+**構成（設計時）**
 
 ```mermaid
 graph LR

@@ -1,0 +1,51 @@
+<section class="chart">
+  <header>
+    <h3>推移</h3>
+    <ul class="legend">
+      @for (m of metrics(); track m.key) {
+        <li>
+          <span class="swatch" [style.background]="m.color"></span>{{ m.label }}
+        </li>
+      }
+    </ul>
+    <span class="meta">
+      {{ points().length }} 点 / 生データ {{ sampleCount() }} 件
+      @if (loading()) {
+        <span class="loading">読み込み中…</span>
+      }
+    </span>
+  </header>
+
+  @if (error()) {
+    <p class="error">{{ error() }}</p>
+  } @else if (points().length === 0) {
+    <p class="empty">この区間にデータがありません。Pico を接続して測定を開始してください。</p>
+  }
+
+  <svg [attr.viewBox]="'0 0 900 260'" preserveAspectRatio="none" role="img" aria-label="測定値の推移グラフ">
+    @for (y of gridLines(); track $index) {
+      <line class="grid" x1="46" [attr.y1]="y" x2="886" [attr.y2]="y" />
+    }
+    @for (t of timeTicks(); track $index) {
+      <line class="grid vertical" [attr.x1]="t.x" y1="14" [attr.x2]="t.x" y2="234" />
+      <text class="axis" [attr.x]="t.x" y="250" text-anchor="middle">{{ t.label }}</text>
+    }
+
+    @for (m of metrics(); track m.key) {
+      @if (bandPath(m)) {
+        <path class="band" [attr.d]="bandPath(m)" [attr.fill]="m.color" />
+      }
+    }
+    @for (m of metrics(); track m.key) {
+      <path class="line" [attr.d]="linePath(m)" [attr.stroke]="m.color" />
+    }
+  </svg>
+
+  @if (lastValue().length) {
+    <footer>
+      @for (v of lastValue(); track v.label) {
+        <span><b>{{ v.value }}</b> {{ v.unit }} <em>{{ v.label }}</em></span>
+      }
+    </footer>
+  }
+</section>

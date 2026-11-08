@@ -1,0 +1,74 @@
+.status {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.pill {
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  border: 1px solid transparent;
+}
+
+.pill.up {
+  background: rgba(72, 201, 169, 0.14);
+  color: #48c9a9;
+  border-color: rgba(72, 201, 169, 0.35);
+}
+
+.pill.warn {
+  background: rgba(224, 182, 79, 0.14);
+  color: #e0b64f;
+  border-color: rgba(224, 182, 79, 0.35);
+}
+
+.pill.bad {
+  background: rgba(240, 168, 96, 0.16);
+  color: #f0a860;
+  border-color: rgba(240, 168, 96, 0.4);
+}
+
+.pill.down {
+  background: rgba(107, 118, 136, 0.16);
+  color: var(--muted, #6b7688);
+  border-color: rgba(107, 118, 136, 0.35);
+}
+
+.stamp,
+.cfg {
+  font-size: 0.78rem;
+  color: var(--muted, #6b7688);
+  font-variant-numeric: tabular-nums;
+}
+
+.gauges {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.ranges {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.ranges button {
+  background: var(--panel, #12161f);
+  color: var(--muted, #6b7688);
+  border: 1px solid var(--line, #232a38);
+  border-radius: 8px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.ranges button.active {
+  color: var(--fg, #e8edf5);
+  border-color: #4f9cf9;
+  background: rgba(79, 156, 249, 0.12);
+}

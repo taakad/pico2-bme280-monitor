@@ -1,0 +1,20 @@
+<figure class="gauge" [class.out-of-range]="outOfRange()">
+  <svg viewBox="0 0 200 200" role="img" [attr.aria-label]="label() + ': ' + display() + ' ' + unit()">
+    @for (t of ticks(); track $index) {
+      <path class="tick" [attr.d]="t.d" />
+      <text class="tick-label" [attr.x]="t.lx" [attr.y]="t.ly" text-anchor="middle" dominant-baseline="middle">
+        {{ t.label }}
+      </text>
+    }
+
+    <path class="track" [attr.d]="trackPath" />
+    @if (valuePath()) {
+      <path class="value" [attr.d]="valuePath()" [attr.stroke]="accent()" />
+      <path class="needle" [attr.d]="needlePath()" [attr.stroke]="accent()" />
+    }
+
+    <text class="reading" x="100" y="98" text-anchor="middle">{{ display() }}</text>
+    <text class="unit" x="100" y="120" text-anchor="middle">{{ unit() }}</text>
+  </svg>
+  <figcaption>{{ label() }}</figcaption>
+</figure>

@@ -1,0 +1,23 @@
+{
+  "name": "pico2-bme280-collector",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Collects BME280 samples from a Raspberry Pi Pico over USB serial, stores them in PostgreSQL and serves them to the Angular UI.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "migrate": "node src/migrate.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "pg": "^8.23.1",
+    "serialport": "^13.0.0",
+    "ws": "^8.22.1"
+  }
+}

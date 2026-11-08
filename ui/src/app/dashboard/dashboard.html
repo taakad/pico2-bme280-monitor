@@ -1,0 +1,35 @@
+<section class="status">
+  <span class="pill" [class]="statusClass()">{{ statusText() }}</span>
+  <span class="stamp">最終測定 {{ updatedAt() }}</span>
+  @if (config(); as c) {
+    <span class="cfg">
+      間隔 {{ c.interval_ms }} ms ・ 小数 {{ c.decimals }} 桁 ・ 平均 {{ c.average }} 件 ・
+      OSR T{{ c.osr_t }}/P{{ c.osr_p }}/H{{ c.osr_h }} ・ フィルタ {{ filterLabel() }} ・ {{ c.mode }}
+    </span>
+  }
+</section>
+
+<section class="gauges">
+  <app-gauge label="温度" unit="°C" [value]="temp()" [min]="0" [max]="45"
+             [decimals]="decimals()" accent="#f2865f" />
+  <app-gauge label="気圧" unit="hPa" [value]="pressure()" [min]="950" [max]="1050"
+             [decimals]="decimals()" accent="#4f9cf9" />
+  <app-gauge label="相対湿度" unit="%RH" [value]="humidity()" [min]="0" [max]="100"
+             [decimals]="decimals()" accent="#48c9a9" />
+  <app-gauge label="露点" unit="°C" [value]="dew()" [min]="-10" [max]="35"
+             [decimals]="decimals()" accent="#9b8cf0" />
+  <app-gauge label="絶対湿度" unit="g/m³" [value]="absolute()" [min]="0" [max]="30"
+             [decimals]="decimals()" accent="#e0b64f" />
+</section>
+
+<section class="ranges" aria-label="表示期間">
+  @for (r of ranges; track r.label) {
+    <button type="button" [class.active]="range() === r" (click)="setRange(r)">{{ r.label }}</button>
+  }
+</section>
+
+<app-history-chart
+  [from]="rangeStart(range())"
+  [to]="rangeEnd()"
+  [bucket]="range().bucket"
+  [metrics]="metrics" />

@@ -1,7 +1,8 @@
 # pico2-bme280-monitor
 
-Raspberry Pi Pico 2 (RP2350) + BME280 で温度・気圧・湿度を測定する C++ ファームウェアと、
-PC 側の監視・配布用スクリプト。
+Raspberry Pi Pico 2 (RP2350) + BME280 で温度・気圧・湿度を測定する C++ ファームウェア、
+PostgreSQL への履歴保存、Angular のダッシュボード / 設定 UI、そして PC 側の
+監視・配布用スクリプト。
 
 実機で動作確認済みです。フラッシュ済みの Pico 2 を USB に接続するだけで、
 2 秒間隔の測定値が USB シリアル（CDC）に流れ続けます。
@@ -23,7 +24,10 @@ T=  23.77 C  P=  1002.94 hPa  RH= 50.99 %  |  dew= 13.03 C  AH=10.93 g/m3  (adc 
 | センサー | BME280 (I2C, アドレス 0x76) |
 | 言語 | C++17 (pico-sdk 2.1.1) |
 | 算出値 | 温度 / 気圧 / 相対湿度 / 露点 / 絶対湿度 |
-| ホストテスト | 55 assertions, 0 failures（ハードウェア不要） |
+| 測定条件 | 実行中にシリアルで変更可能（間隔・桁数・平均・OSR・フィルタ・モード） |
+| ホストテスト | 120 assertions, 0 failures（ハードウェア不要） |
+| UI | Angular 22（ダッシュボード / 測定設定の 2 画面） |
+| 履歴 | PostgreSQL（時系列 + 1 時間ロールアップ） |
 
 ---
 
@@ -85,6 +89,71 @@ JSON 出力は今後の UI やサービス連携がそのまま食える形に�
  "absolute_humidity_gm3": 10.49, "adc_t": 531342, "adc_p": 276178, "adc_h": 27563}
 ```
 
+### 4. 測定条件を途中で変える（リフラッシュ不要）
+
+ファームウェアは起動後もシリアルコンソールで設定を受け付けます。
+`scripts/config.py` がそのプロトコルの CLI です。
+
+```sh
+scripts/config.py --get                       # 現在の設定を表示
+scripts/config.py --set interval=1000         # 測定間隔を 1 秒に
+scripts/config.py --set decimals=3            # 小数 3 桁で出力
+scripts/config.py --set average=8             # 生の ADC 値を 8 件移動平均
+scripts/config.py --set osr.t=4 --set filter=2 # オーバーサンプリング / IIR フィルタ
+scripts/config.py --set mode=forced           # 連続 / 単発
+scripts/config.py --set json=true             # 1 サンプル 1 行の JSON 出力
+```
+
+デバイス側が値を検証し、`ok <key>=<value>` か `error: <理由>` で応答します。
+不正な値は現在の設定を一切変更しません。設定項目と有効範囲は
+`docs/roadmap.md` の A 節に表にしてあります。
+
+### 5. ダッシュボードと設定 UI（collector サービス）
+
+Pico を挿したまま collector を起動すると、測定値が PostgreSQL に蓄積され、
+Angular の 2 画面（ダッシュボード / 測定設定）で確認できます。
+
+前提: Node.js 20+ と PostgreSQL。PostgreSQL は管理者権限なしで
+`~/toolchain/pgsql` に Postgres.app から展開して 5433 で起動しています。
+
+```sh
+# 一键: DB 起動（無ければ initdb）→ スキーマ適用 → UI ビルド → collector 起動
+scripts/collector.sh
+# → http://127.0.0.1:8787  （ビルド済み ui/dist を同じプロセスが配信）
+```
+
+手動で組む場合:
+
+```sh
+# 1. データベース作成（初回のみ）
+createdb -h /tmp -p 5433 -U pico pico_monitor
+
+# 2. collector 起動（シリアル自動検出・再接続、REST + WebSocket + UI 配信）
+cd server && npm install
+PGHOST=/tmp PGPORT=5433 PGDATABASE=pico_monitor PGUSER=pico npm start
+# → http://127.0.0.1:8787  （ビルド済み ui/dist を同じプロセスが配信）
+
+# 開発時は Angular デバウザー（proxy.conf.json で 8787 へ中継）
+cd ui && npm install && npm start     # http://localhost:4200
+```
+
+- **ダッシュボード** `/dashboard`：5 パラメータ（温度・気圧・相対湿度・露点・絶対湿度）を
+  SVG のアークゲージで現在値表示し、WebSocket でリアルタイム更新。期間切り替え
+  （1 時間 / 24 時間 / 7 日 / 30 日）で PostgreSQL の履歴を折れ線グラフ表示。
+- **測定設定** `/settings`：A の設定項目をフォームで編集し、`PUT /api/settings`
+  経由でファームウェアへ反映。値はサーバー側とデバイス側の両方で検証されます。
+
+REST API（collector が提供）:
+
+| メソッド | パス | 内容 |
+|----------|------|------|
+| GET | `/api/health` | collector とシリアルの状態 |
+| GET | `/api/latest` | 最新サンプル |
+| GET | `/api/measurements?from&to&bucket` | 履歴（bucket: raw/1m/5m/…/1d） |
+| GET | `/api/settings` | 現在の設定（デバイス優先、無ければ DB） |
+| PUT | `/api/settings` | 設定をデバイスへ適用 |
+| WS  | `/ws` | `hello` / `sample` / `config` / `status` / `batch` |
+
 ---
 
 ## 配線
@@ -131,10 +200,25 @@ RP2350 の I2C0 パッドは RP2040 と機能が異なります（`hardware_regs
 firmware/            pico-sdk C++ ファームウェア（本体）
   src/bme280_math.*    Bosch 参照実装準拠の補償計算 + 露点・絶対湿度
   src/bme280.*         I2C ドライバ（レジスタ定義、校正読み出し、測定シーケンス）
+  src/config.*         実行中に変更できる測定設定（検証付き）
+  src/command.*        シリアル設定プロトコル（set/get/help/ping）
+  src/sampler.*        生の ADC 値への移動平均
   src/i2c_scan.*       I2C バススキャン（テスト可能に切り出し）
-  src/main.cpp         起動処理、診断出力、測定ループ
+  src/main.cpp         起動処理、診断出力、測定ループ、コマンドループ
   test/                ホスト単体テスト + 模擬 BME280
-scripts/             セットアップ / ビルド / テスト / 書き込み / 監視
+server/              collector サービス（Node.js）
+  src/serial.js        シリアル自動検出・再接続・JSON 解析・設定送信
+  src/db.js            PostgreSQL スキーマ適用 / INSERT / 系列クエリ
+  src/api.js           REST + WebSocket + 設定検証 + UI 配信
+  src/index.js         起動・バッチ保存・イベント配線
+  test/                プロトコル解析と DB round trip のテスト
+db/schema.sql        PostgreSQL スキーマ（device / measurement / 設定 / 1 時間集計）
+ui/                  Angular 22 アプリ
+  src/app/dashboard/   SVG ゲージ + 履歴グラフ（ダッシュボード画面）
+  src/app/settings/    測定設定フォーム（設定画面）
+  src/app/gauge/       アークゲージ（依存なしの手描き SVG）
+  src/app/history/     折れ線 + min/max 帯の手描き SVG チャート
+scripts/             セットアップ / ビルド / テスト / 書き込み / 監視 / 設定
 legacy/              元の MicroPython スクリプト（参考保存、動作しません）
 docs/                追加ドキュメント
   review-findings.md   元の Python 実装で確認した問題と証拠
@@ -250,102 +334,94 @@ macOS ではマスストレージボリュームへの UF2 コピー（`cp`、`l
   独自の `pico_printf`（`_ftoa`/`_etoa` を内蔵、`%f` 対応済み）を使うため無関係でした。
   未定義シンボル `_printf_float` を残すだけだったので削除。現在 ELF の未定義シンボルはゼロ。
 
+### 7. 測定条件の設定化と UI（A・B の実装）
+
+- **設定プロトコル**：`set/get/help/ping` の行単位テキストプロトコル。設定は
+  `struct Config` に集約し、`applySetting()` はコピーに対して検証してから適用するため、
+  不正な値は既存設定を一切変更しません。`get` は現在の設定を 1 行で返します。
+- **平均は補償計算の前**：ADC 値への移動平均（窓長 ≤ 64、64bit 累算）を新設。
+  補償計算後に平均するよりセンサーのノイズ特性に合います。
+- **BME280 のレジスタ順序**：`ctrl_hum`(0xF2) を `ctrl_meas`(0xF4) より先に書かないと
+  湿度 OSR が無視される、というデータシートの制約をテストで固定しました。
+  standby は 500 ms（x16/x16/x16 の変換時間をカバー）。
+- **詰まらないメインループ**：`getchar_timeout_us(0)` で非ブロッキングにコマンドを拾い、
+  睡眠は 50 ms スライス（各スライスでウォッチドッグ更新＋コマンド処理）。
+  `set interval=` は 50 ms 以内に反映されます。ウォッチドッグは 6 s 固定のまま
+  （スライスが叩くので長い間隔でも誤発火せず、詰まりは 6 s で復旧）。
+- **桁数**：`pico_printf` が `%*.*f` の `*` 精度指定に対応しているため、
+  `decimals` はフォーマット文字列だけで反映されます。
+- **JSON 出力モード**（`set json=true`）：collector が壊れにくい形でサンプルを
+  受け取れます。`monitor.py` はこの JSON をそのまま透過します。
+- **collector / UI**：Node.js の collector がシリアル自動検出・再接続し、
+  PostgreSQL に保存（1 時間ロールアップ付き）、REST + WebSocket + 静的 UI を 1 プロセスで
+  提供。Angular はゲージもグラフも依存ゼロの手描き SVG です。
+- **検証**：実機で設定プロトコル 45 チェック、ヘッドレス Chrome で UI 16 チェック、
+  いずれも全通過。UI から `decimals=4` を適用 → ゲージ表示が 4 桁になるまでを
+  実機経由で確認しました。
+
 ---
 
 ## 今後の展望
 
-以下は意図的にまだ実装していません。設計方針をここに記録しておきます。
+### A. 測定条件を任意の値に変更できるようにする — 実装済み
 
-### A. 測定条件を任意の値に変更できるようにする
+シリアル設定プロトコル（`set/get/help/ping`）として実装しました。
+設定項目・有効範囲・検証の挙動は [docs/roadmap.md](docs/roadmap.md) の A 節にあります。
+使い方と実機検証結果は上の「4. 測定条件を途中で変える」にまとめてあります。
 
-現状、サンプル間隔（2 秒）も出力桁数もオーバーサンプリングもソースに定数として
-ハードコードされています。これを設定化します。
+- 平均は補償計算 **前** の生の ADC 値に対して適用（設計方針どおり）
+- 不正な値は `error` を返し、既存設定は変更されない
+- 設定永続化（フラッシュ保存）は未実装。現状は再接続時に collector が
+  前回設定を再送して再現する
 
-**設定項目（予定）**
+### B. 測定結果をリアルタイム表示する Angular UI — 実装済み
 
-| 項目 | 現状 | 予定 |
-|------|------|------|
-| サンプル間隔 | 2000 ms 固定 | 任意（ms） |
-| 出力桁数（小数点制度） | `%7.2f` 等が固定 | 項目ごとに指定 |
-| 平均回数（サンプリング数） | なし（1 回） | N 回平均、移動平均の窓長 |
-| 温度/気圧/湿度のオーバーサンプリング | `OSR_X1` 固定 | `x1..x16` を個別指定 |
-| IIR フィルタ | x16 固定 | `x2..x16` |
-| センサーアドレス | 0x76 固定 | 0x76 / 0x77 |
-| 測定モード | normal（連続） | normal / forced |
-
-**実装方針**
-
-1. **ファームウェア側**：設定を `struct Config` に集約し、シリアルで受け取る
-   コマンドラインプロトコルを追加します。テキストのままでも良いので、
-   `set interval=1000` / `set decimals=3` / `set osr.p=4` のような行を受け付け、
-   `ok` / `error: ...` で応答する形を想定。
-2. **平均と移動平均**：BME280 の ADC 値に対して適用します（補償計算後ではなく前に
-   適用する方が、センサーのノイズ特性に合います）。
-3. **PC 側**：`scripts/monitor.py` に `--interval` / `--decimals` / `--average` を追加し、
-   ファームウェアへ `set` コマンドを送って同期します。
-4. **永続化**：設定をフラッシュ上の 1 ページ（`pico_flash` または `pico_bootrom` の
-   パーティション API）に保存し、再起動後も維持します。
-
-注意点として、オーバーサンプリングを上げると 1 サンプルあたりの変換時間が伸びます
-（BME280 のデータシート上の典型変換時間 × OSR）。サンプル間隔と整合させる検証が
-必要です。
-
-### B. 測定結果をリアルタイム表示する Angular UI
-
-`ui/` に Angular アプリを置き、PC 側の小さなブリッジがシリアルを中継する構成を予定しています。
+`ui/`（Angular 22）と `server/`（collector）として実装しました。
+設定画面と監視画面は別ルート（`/settings` と `/dashboard`）に分けてあります。
 
 ```mermaid
 graph LR
-    P[Pico 2 + BME280] -->|USB CDC /dev/cu.usbmodem*| B[serial bridge<br/>Node.js]
-    B -->|WebSocket /ws| U[Angular UI]
-    B -->|JSON Lines| D[(測定ログ)]
+    P[Pico 2 + BME280] -->|USB CDC JSON Lines| C[collector<br/>Node.js]
+    C -->|INSERT + 1時間ロールアップ| D[(PostgreSQL)]
+    C -->|REST /api/*| U[Angular UI]
+    C -->|WebSocket /ws| U
+    C -->|set k=v| P
 ```
 
-**設計方針**
+- **ダッシュボード**：5 参数の SVG アークゲージ（チャートライブラリなしの手描き SVG）、
+  WebSocket によるリアルタイム更新、1 時間〜30 日の履歴グラフ（min/max 帯付き）
+- **設定**：フォーム → `PUT /api/settings` → シリアル `set` → デバイス検証 →
+  WebSocket `config` で全クライアントへ反映
+- **DB スキーマ**：`db/schema.sql`（device / measurement / device_setting /
+  measurement_hourly）。measurement は `(device_id, ts DESC)` にインデックス、
+  長期窓は 1 時間ロールアップでスキャン量を抑制
 
-- **ブリッジ**：`ui/server/` に Node.js（`serialport` + `ws`）。シリアル自動検出
-  （`vid=0x2E8A pid=0x0009` で絞り込む）、再接続、JSON Lines でのローカル保存。
-- **Angular 側**：
-  - 現在値の大きな表示（温度 / 気圧 / 湿度 / 露点 / 絶対湿度）
-  - 時系列チャート（`ngx-charts` または ECharts）。数分〜数日窓を切り替え
-  - 測定条件パネル（A の `set` コマンドを UI から操作）
-  - 接続状態・センサー状態（ファームウェアの診断出力をそのまま状態として表示）
-- **データ形式**：`scripts/monitor.py --json` の出力をそのまま流用します。
-  `ts` / `temperature_c` / `pressure_hpa` / `humidity_rh` / `dew_point_c` /
-  `absolute_humidity_gm3` / `adc_*` が既に揃っています。
-- **WebSocket**：単発の値だけでなく、`hello`（接続時の校正ダンプ）、`sample`、
-  `status`（センサー消失・ウォッチドッグリセット）のイベント型を想定。
+### C. インストールしてサービスとして起動すると、Pico を差すだけで測定できる環境 — 未実装
 
-### C. インストールしてサービスとして起動すると、Pico を差すだけで測定できる環境
-
-狙いは「ドライバー的な常駐サービスを入れておけば、以後はケーブルを挿すだけで
-測定が始まり、UI ですぐ見える」状態です。
+collector はすでに「起動中に挿すと自動検出・自動開始・自動再接続」までできています
+（`server/src/serial.js` の検出ループ）。残りは OS への常駐登録です。
 
 **方針**
 
-1. **常駐サービス**：`scripts/` にデーモンを追加し、シリアルの**接続/切断を監視**して
-   接続時に自動で読み取りを開始します。
-   - Linux: `udev` ルール（`ATTRS{idVendor}=="2e8a", ATTRS{idProduct}=="0009"`）で
-     `/dev/bme280` のような安定したシンボリックリンクを作り、`systemd` サービスで起動。
-     プラグイン検知は `systemd.socket` の `BindPaths` または `pyudev` のイベントループ。
-   - macOS: `launchd` の `KeepAlive` + シリアル検出ループ（`/dev/cu.usbmodem*` の出現監視）。
-   - Windows: `New-EventLog`/WMI ではなく `serialport` のライブラリ側検出を予定。
-2. **安定したデバイス名**：ベンダ/プロダクト ID で識別し、`/dev/bme280` などの固定名で
-   開けるようにします（`/dev/cu.usbmodem1101` のような番号は再起動で変わります）。
-3. **HTTP / WebSocket サーバー**：サービスがそのまま WebSocket を提供し、Angular UI を
-   配信します（`http://localhost:PORT/`）。これで「挿す → ブラウザで見る」が成立します。
-4. **履歴の保存**：JSON Lines（または SQLite）に追記し、UI 側の長期窓・CSV エクスポートに供します。
-5. **インストール手順**：`scripts/install-service.sh`（Linux/macOS）と、サービス管理コマンド
-   （`status` / `logs` / `uninstall`）を用意する想定です。
+1. **常駐サービス**
+   - Linux: `udev` ルール（`ATTRS{idVendor}=="2e8a"`）で `/dev/bme280` のような
+     安定シンボリックリンクを作り、`systemd` サービスで collector を起動
+   - macOS: `launchd` の `KeepAlive` + `launchctl bootstrap`（`scripts/install-service.sh` 想定）
+   - Windows: `serialport` のライブラリ側検出を予定
+2. **安定したデバイス名**：`/dev/cu.usbmodem1101` のような番号は再起動で変わるため、
+   ベンダ ID で識別したポートを collector 側で追跡する（現状は接続のたびに再検出）
+3. **HTTP サーバー**：collector が UI を同梱配信する形は実装済み
+   （`http://localhost:8787/`）。「挿す → ブラウザで見る」はサービス登録だけで成立する
+4. **履歴の保存**：PostgreSQL 保存は実装済み。CSV エクスポートは未実装
+5. **設定の永続化**：ファームウェアのフラッシュ保存（A の残課題）をやると、
+   サービス無しでも「挿すだけ」の挙動が素の基板で再現できる
 
-**未解決の論点**
+**既知の論点**
 
-- pico-sdk の CDC は USB シリアルを 1 本しか提供しないため、**設定コマンドと測定値が同じ
-  チャネルを共有**します。テキストプロトコルで多重化するか、ベンダーインターフェースを
-  別途使うかの選択が必要です。
-- macOS では `launchd` からのシリアルアクセスに権限設定が必要になる可能性があります。
-- ファームウェア側の設定永続化（A の 4）を先にやっておくと、サービスが無くても
-  「挿すだけ」の挙動が素の基板で再現でき、テストしやすくなります。
+- pico-sdk の CDC は USB シリアルを 1 本しか提供しないため、設定コマンドと
+  測定値が同じチャネルを共有する。テキストプロトコルの行単位多重化で解決済み
+- macOS の `launchd` からのシリアルアクセスの権限設定は未検証
+- PostgreSQL を常駐させる場合の起動順序（DB → collector）の管理
 
 ---
 
@@ -367,6 +443,18 @@ scripts/test.sh
 - `ctrl_hum` を `ctrl_meas` より先に書く順序
 - チップ ID 不一致の拒否、NACK 処理、滞留バスでの即失敗
 - スキャンの誤検出回帰テスト
+- 設定の検証（範囲外・非数値・不正な OSR を拒否し、既存設定を変えない）
+- シリアル行プロトコルの解析と過長行の破棄
+- 生の ADC 値への移動平均（窓充填、ゼロサンプルスキップ、窓長クランプ）
+
+### collector のテスト（ハードウェア不要）
+
+```sh
+cd server && npm test
+```
+
+シリアル設定プロトコルの解析、設定検証、PostgreSQL の INSERT / 系列クエリ /
+1 時間ロールアップをカバーします（DB が無い環境では DB テストは自動スキップ）。
 
 ### ファームウェアの詳細
 
